@@ -1,0 +1,25 @@
+{
+  "short_name": "Panda Royale",
+  "name": "Panda Royale Calculator",
+  "description": "Professional score tracking for Panda Royale with Wild Dice logic.",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#0f172a",
+  "display": "standalone",
+  "scope": "./",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary"
+}
