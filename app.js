@@ -1,12 +1,12 @@
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-    projectId: "YOUR_PROJECT",
-    storageBucket: "YOUR_PROJECT.appspot.com",
-    messagingSenderId: "...",
-    appId: "..."
+    apiKey: "AIzaSyCyv0xLx6joG106Qi9wNATUbwA6Y7dzfzU",
+    authDomain: "pandaroyalsync.firebaseapp.com",
+    projectId: "pandaroyalsync",
+    storageBucket: "pandaroyalsync.firebasestorage.app",
+    messagingSenderId: "315230601498",
+    appId: "1:315230601498:web:35b1b86272cc1713112ca3",
+    measurementId: "G-RXWQJ3ECP5"
 };
 
 firebase.initializeApp(firebaseConfig);
