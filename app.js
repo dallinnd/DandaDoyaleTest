@@ -183,57 +183,101 @@ function renderGame() {
 function renderSummary() {
     const roundIdx = activeGame.currentRound;
     const submissions = activeGame.roundSubmissions[`round_${roundIdx}`];
-    const order = calculateOrder(); // Use neighbors to find circular list
-    
-    // TIE BREAKER ENGINE
-    const sortedYellow = Object.entries(submissions).sort((a,b) => b[1].yellow - a[1].yellow);
-    const pandaId = sortedYellow[0][0]; // Highest Yellow
-    
-    // PITY DICE CALC
-    const playerCount = order.length;
-    let pityCount = 1;
-    if (playerCount >= 4 && playerCount <= 6) pityCount = 2;
-    else if (playerCount >= 7 && playerCount <= 9) pityCount = 3;
-    else if (playerCount === 10) pityCount = 4;
+    const fullOrder = calculateOrder(); // [Host, LeftOfHost, LeftOfLeft...]
 
-    const sortedTotal = Object.entries(submissions).sort((a,b) => a[1].roundTotal - b[1].roundTotal);
-    const pityWinners = sortedTotal.slice(0, pityCount).map(s => activeGame.players[s[0]].name);
+    // 1. FIND THE ROUND PANDA (Highest Yellow)
+    const sortedByYellow = Object.entries(submissions).sort((a,b) => b[1].yellow - a[1].yellow);
+    const pandaId = sortedByYellow[0][0];
 
+    // 2. CREATE THE RELATIVE ORDER (Start from Panda, go Left)
+    // We shift the array so the Panda is index 0.
+    const pandaIndex = fullOrder.indexOf(pandaId);
+    const relativeOrder = [...fullOrder.slice(pandaIndex), ...fullOrder.slice(0, pandaIndex)];
+
+    // 3. PICK ORDER CALCULATION (Descending Yellow + Tie Breaker)
+    const pickOrder = [...fullOrder].sort((a, b) => {
+        if (submissions[b].yellow !== submissions[a].yellow) {
+            return submissions[b].yellow - submissions[a].yellow; // Sort by Value
+        }
+        // Tie-breaker: Who is closer to Panda's Left? (Lower index in relativeOrder)
+        return relativeOrder.indexOf(a) - relativeOrder.indexOf(b);
+    });
+
+    // 4. PITY DICE CALCULATION (Lowest Round Total + Tie Breaker)
+    // Rule: Tie-breaker priority given to player closest to Panda's RIGHT.
+    const playerCount = fullOrder.length;
+    let pityWinnerCount = 1;
+    if (playerCount >= 4 && playerCount <= 6) pityWinnerCount = 2;
+    else if (playerCount >= 7 && playerCount <= 9) pityWinnerCount = 3;
+    else if (playerCount === 10) pityWinnerCount = 4;
+
+    const sortedByRoundTotal = [...fullOrder].sort((a, b) => {
+        if (submissions[a].roundTotal !== submissions[b].roundTotal) {
+            return submissions[a].roundTotal - submissions[b].roundTotal; // Sort by Value
+        }
+        // Tie-breaker: Closest to Panda's Right (Highest index in relativeOrder)
+        return relativeOrder.indexOf(b) - relativeOrder.indexOf(a);
+    });
+    const pityWinners = sortedByRoundTotal.slice(0, pityWinnerCount);
+
+    // 5. RENDER THE SECTIONS
     app.innerHTML = `
-    <div class="p-6 h-full overflow-y-auto animate-fadeIn">
-        <h2 class="text-center text-xs font-black uppercase tracking-[0.4em] opacity-40 mb-10">Round ${roundIdx + 1} Summary</h2>
+    <div class="p-6 h-full overflow-y-auto animate-fadeIn bg-[var(--bg-main)]">
+        <h2 class="text-center text-[10px] font-black uppercase tracking-[0.4em] opacity-40 mb-8">Round ${roundIdx + 1} Summary</h2>
         
         <div class="summary-card panda-highlight">
-            <span class="text-[10px] font-black uppercase opacity-60">Round Panda</span>
-            <div class="text-3xl font-black text-yellow-500">${activeGame.players[pandaId].name}</div>
+            <span class="text-[10px] font-black uppercase opacity-60 tracking-widest">Round Panda</span>
+            <div class="text-4xl font-black text-yellow-500 mt-1">${activeGame.players[pandaId].name}</div>
         </div>
 
         <div class="summary-card">
-            <span class="text-[10px] font-black uppercase opacity-60">Pity Dice Winners</span>
-            <div class="font-bold text-xl">${pityWinners.join(', ')}</div>
+            <span class="text-[10px] font-black uppercase opacity-60 tracking-widest">Pity Dice Winners</span>
+            <div class="mt-2 space-y-1">
+                ${pityWinners.map(id => `<div class="font-bold text-lg">• ${activeGame.players[id].name}</div>`).join('')}
+            </div>
         </div>
 
         <div class="summary-card">
-            <span class="text-[10px] font-black uppercase opacity-60">Trades (Clear Dice)</span>
-            <div class="space-y-1 mt-2">
-                ${order.filter(id => submissions[id].hasClear).map(id => `<div class="text-sm font-bold">• ${activeGame.players[id].name}</div>`).join('')}
+            <span class="text-[10px] font-black uppercase opacity-60 tracking-widest">Trades (Clear Dice)</span>
+            <div class="mt-2 flex flex-wrap gap-2">
+                ${relativeOrder.filter(id => submissions[id].hasClear).map(id => 
+                    `<span class="bg-slate-700 px-3 py-1 rounded-full text-xs font-bold">${activeGame.players[id].name}</span>`
+                ).join('') || '<span class="opacity-30 italic text-xs">No trades this round</span>'}
+            </div>
+        </div>
+
+        <div class="summary-card">
+            <span class="text-[10px] font-black uppercase opacity-60 tracking-widest">Dice Pick Order</span>
+            <div class="mt-3 space-y-2">
+                ${pickOrder.map((id, i) => `
+                    <div class="flex items-center gap-3">
+                        <span class="w-6 h-6 flex items-center justify-center bg-white/10 rounded-full text-[10px] font-black">${i+1}</span>
+                        <span class="font-bold ${id === pandaId ? 'text-yellow-500' : ''}">${activeGame.players[id].name}</span>
+                    </div>
+                `).join('')}
             </div>
         </div>
 
         ${activeGame.settings.showLeaderboard ? `
-        <div class="summary-card bg-green-600/10 border-green-500/30">
-            <span class="text-[10px] font-black uppercase text-green-500">Leaderboard</span>
-            <div class="mt-2 space-y-2">
-                ${Object.entries(submissions).sort((a,b) => b[1].grandTotal - a[1].grandTotal).map(s => `
-                    <div class="flex justify-between text-sm font-black">
-                        <span>${activeGame.players[s[0]].name}</span>
-                        <span>${s[1].grandTotal}</span>
+        <div class="summary-card border-green-500/30 bg-green-500/5">
+            <span class="text-[10px] font-black uppercase text-green-500 tracking-widest">Current Standings</span>
+            <div class="mt-3 space-y-2">
+                ${Object.entries(submissions).sort((a,b) => b[1].grandTotal - a[1].grandTotal).map(([id, data]) => `
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="font-medium">${activeGame.players[id].name}</span>
+                        <span class="font-black text-green-500">${data.grandTotal}</span>
                     </div>
                 `).join('')}
             </div>
         </div>` : ''}
 
-        ${isHost ? `<button onclick="nextRound()" class="w-full bg-blue-600 py-5 rounded-3xl font-black text-white mt-8 shadow-xl">NEXT ROUND</button>` : ''}
+        ${isHost ? `
+            <button onclick="nextRound()" class="w-full bg-blue-600 py-5 rounded-[24px] font-black text-white mt-8 shadow-xl active:scale-95 transition-all">NEXT ROUND</button>
+        ` : `
+            <div class="text-center py-10 opacity-30 text-[10px] font-black uppercase animate-pulse">Waiting for host to advance...</div>
+        `}
+        
+        <button onclick="renderGame()" class="w-full py-4 text-[10px] font-black uppercase opacity-30 tracking-widest">Back to Calculator</button>
     </div>`;
 }
 
