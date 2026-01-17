@@ -76,14 +76,47 @@ function openHostModal() {
 
 // --- 4. MULTIPLAYER SYNC (The "Flip 7" Strategy) ---
 async function hostGame(mode) {
-    if (!playerName) return alert("Enter name!");
-    document.querySelector('.modal-overlay').remove();
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
-    await db.ref('games/' + code).set({
-        hostId: myId, mode: mode, status: "lobby", roundNum: 1,
-        players: { [myId]: { name: playerName, submitted: false } }
-    });
-    joinGame(code);
+    if (!playerName || playerName.trim() === "") {
+        return alert("Please enter your name in the profile section first!");
+    }
+
+    try {
+        // 1. Remove the selection modal
+        const modal = document.querySelector('.modal-overlay');
+        if (modal) modal.remove();
+
+        // 2. Generate a 6-digit code (consistent with your join prompt)
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        console.log("Attempting to host game with code:", code);
+
+        // 3. Create the initial game object
+        const initialGameData = {
+            hostId: myId,
+            mode: mode,
+            status: "lobby",
+            roundNum: 1,
+            settings: { 
+                showLeaderboard: true 
+            },
+            players: {
+                [myId]: {
+                    name: playerName,
+                    submitted: false
+                }
+            }
+        };
+
+        // 4. Write to Firebase
+        await db.ref('games/' + code).set(initialGameData);
+        console.log("Firebase write successful!");
+
+        // 5. Join the game locally
+        joinGame(code);
+
+    } catch (error) {
+        console.error("Hosting failed:", error);
+        alert("Firebase Error: " + error.message);
+    }
 }
 
 function joinPrompt() {
