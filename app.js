@@ -45,7 +45,7 @@ let multiplayerConfig = {
 
 const app = document.getElementById('app');
 
-// --- Helper: Safe Name for Firebase ---
+// --- Helper: Safe Name ---
 function getSafeName() {
     return myName.replace(/[.#$/[\]]/g, '');
 }
@@ -406,15 +406,8 @@ function syncLobby(snap) {
             waitingEl.classList.remove('hidden');
             app.classList.add('hidden');
 
-            const listContainer = document.getElementById('waiting-list');
-            
-            // --- SCROLL FIX START ---
-            if (listContainer && listContainer.parentElement) {
-                // Ensure parent has flex-1, overflow-y-auto and min-h-0 to allow internal scrolling
-                listContainer.parentElement.className = "flex-1 overflow-y-auto min-h-0";
-            }
-            // --- SCROLL FIX END ---
-
+            // --- REBUILD WAITING SCREEN ---
+            // This rebuilds the DOM node to guarantee correct Flex/Scroll classes
             const orderList = multiplayerConfig.playerOrder;
             
             const calcPlayers = players.map(p => ({
@@ -565,23 +558,30 @@ function syncLobby(snap) {
                  html += `<div class="mt-8 pb-10 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
             }
 
-            listContainer.innerHTML = html;
+            // --- RE-INJECT ENTIRE WAITING SCREEN HTML ---
+            // This is the key fix for scrolling. We rebuild the container structure every update.
+            const btnHtml = (multiplayerConfig.isHost) 
+                ? `<button onclick="hostPushNextRound()" id="host-next-btn" class="w-full bg-yellow-500 text-black py-4 rounded-2xl font-black text-xl shadow-lg mb-3">START NEXT ROUND</button>`
+                : `<p id="waiting-msg" class="text-center text-slate-500 text-xs font-black uppercase tracking-widest mb-2 animate-pulse">Waiting for other players...</p>`;
 
-            const hostBtn = document.getElementById('host-next-btn');
-            const msg = document.getElementById('waiting-msg');
-            
-            if (multiplayerConfig.isHost) {
-                hostBtn.classList.remove('hidden');
-                msg.classList.add('hidden');
-            } else {
-                hostBtn.classList.add('hidden');
-                msg.classList.remove('hidden');
-            }
+            waitingEl.innerHTML = `
+                <div class="flex justify-between items-center mb-6 flex-none">
+                    <h2 class="text-2xl font-black text-white tracking-tighter">ROUND SUMMARY</h2>
+                    <button onclick="editMyScore()" class="px-4 py-2 bg-slate-800 rounded-lg text-[10px] font-black uppercase text-slate-400">EDIT SCORE</button>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto min-h-0" id="waiting-list-scroll-area">
+                    ${html}
+                </div>
+
+                <div class="mt-4 flex-none">
+                    ${btnHtml}
+                </div>
+            `;
 
         } else {
             waitingEl.classList.add('hidden');
             app.classList.remove('hidden');
-            // KICK-OUT FIX: Do not refresh calculator UI here if user is still playing
         }
     }
 }
@@ -601,7 +601,8 @@ function openHostSettings(isSetupMode = false) {
     get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
         const data = snap.val();
         const order = data.playerOrder || [];
-        const pCount = order.length;
+        // FIX: Display Target Count, not joined count
+        const pCount = data.targetCount || 4;
         const gameCode = multiplayerConfig.code; 
         const showGT = data.showGrandTotal !== false; 
 
@@ -852,7 +853,7 @@ function renderGame() {
         
         // Left: Host Gear or Exit
         if (multiplayerConfig.isHost) {
-            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">HOST<span class="text-base">⚙️</span></button>`;
+            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
@@ -969,43 +970,6 @@ function renderGame() {
      
     if (!activeInputField) { setActiveInput('yellow'); }
     updateAllDisplays();
-}
-
-function updateAllDisplays() {
-    const round = activeGame.rounds[activeGame.currentRound];
-    if (!round) return;
-    const isExpansion = activeGame.mode === 'expansion';
-    if (isExpansion) {
-        const sage = calculateSageProgress(round);
-        const sText = document.getElementById('sage-status-text');
-        const sFill = document.getElementById('sage-progress-fill');
-        if (sText) {
-            sText.textContent = `${sage.count}/6 Used${sage.count >= 6 ? ' - SAGE! ✨' : ''}`;
-            sText.className = `text-xs font-black uppercase ${sage.count >= 6 ? 'text-yellow-500' : 'text-green-500'}`;
-        }
-        if (sFill) {
-            sFill.style.width = `${sage.percentage}%`;
-            sFill.className = `h-full transition-all duration-500 ${sage.count >= 6 ? 'bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`;
-        }
-    }
-    const wildBonuses = {};
-    (round.wild || []).forEach((w, i) => {
-        wildBonuses[w.target] = (wildBonuses[w.target] || 0) + (w.value || 0);
-        const displays = document.querySelectorAll('.wild-val-display');
-        if (displays[i]) displays[i].textContent = w.value || 0;
-    });
-    [...diceConfig, sageDiceConfig].forEach(d => {
-        const sumEl = document.getElementById(`${d.id}-sum`);
-        if (!sumEl) return;
-        const vals = round[d.id] || [];
-        let base = (vals.reduce((a, b) => a + b, 0)) + (wildBonuses[d.id] || 0);
-        let score = (d.id==='purple'||(d.id==='blue'&&round.blueHasSparkle)) ? base*2 : (d.id==='red' ? base*vals.length : base);
-        sumEl.textContent = score;
-        const valBox = document.getElementById(`${d.id}-values`);
-        if (valBox) valBox.innerHTML = vals.map((v, i) => `<span class="inline-flex items-center bg-black/10 px-5 py-3 rounded-2xl text-xl font-black border border-black/5">${v} <button onclick="event.stopPropagation(); removeVal('${d.id}', ${i})" class="ml-4 w-8 h-8 flex items-center justify-center bg-black/20 rounded-full text-lg opacity-60 active:bg-red-500 active:text-white">×</button></span>`).join('');
-    });
-    document.getElementById('round-total-display').textContent = calculateRoundTotal(round);
-    document.getElementById('grand-total-box').textContent = calculateGrandTotal(activeGame);
 }
 
 // --- Interaction Helpers ---
