@@ -434,6 +434,8 @@ function syncLobby(snap) {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
                 const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
                 const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
+                if (distA === 0) distA = 9999;
+                if (distB === 0) distB = 9999;
                 return distA - distB;
             });
             const pityList = pityOrder.slice(0, pityDiceCount);
