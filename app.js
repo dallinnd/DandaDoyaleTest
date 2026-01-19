@@ -138,7 +138,6 @@ function finishOnboarding() {
     showHome();
 }
 
-// --- NEW FUNCTION: Update Player Name Live ---
 function updatePlayerName(val) {
     myName = val;
     localStorage.setItem('panda_name', val);
@@ -149,7 +148,6 @@ function showHome() {
     document.getElementById('lobby-screen').classList.add('hidden');
     document.getElementById('waiting-screen').classList.add('hidden');
     
-    // Set default name if missing but don't prompt
     if (!myName) {
         myName = "Panda";
         localStorage.setItem('panda_name', myName);
@@ -235,7 +233,7 @@ async function finalizeHostGame(mode) {
         roundNum: 0,
         targetCount: 4,
         playerOrder: [myName],
-        showGrandTotal: true // Default to Competative
+        showGrandTotal: true 
     });
 
     await set(ref(db, `games/${newCode}/players/${myName}`), { 
@@ -280,7 +278,6 @@ async function joinExistingGame() {
             clearUsed: false
         });
         
-        // Add to Order List
         const gameData = gSnap.val();
         let currentOrder = gameData.playerOrder || [];
         if (!currentOrder.includes(myName)) {
@@ -305,7 +302,6 @@ function adjustLobbyCount(delta) {
         let next = Math.max(1, Math.min(20, current + delta));
         update(ref(db, `games/${multiplayerConfig.code}`), { targetCount: next });
     });
-    // Removed setTimeout(openHostSettings) to stop flashing
 }
 
 function toggleScoreVisibility() {
@@ -313,40 +309,24 @@ function toggleScoreVisibility() {
     get(ref(db, `games/${multiplayerConfig.code}/showGrandTotal`)).then((snap) => {
         const current = snap.val();
         update(ref(db, `games/${multiplayerConfig.code}`), { showGrandTotal: !current });
-        // Removed setTimeout(openHostSettings) to stop flashing
     });
 }
 
-
-function toggleScoreVisibility() {
-    if(!multiplayerConfig.isHost) return;
-    get(ref(db, `games/${multiplayerConfig.code}/showGrandTotal`)).then((snap) => {
-        const current = snap.val();
-        update(ref(db, `games/${multiplayerConfig.code}`), { showGrandTotal: !current });
-        // Refresh UI
-        setTimeout(() => openHostSettings(false), 200);
-    });
-}
-
-// --- Tie Breaking Logic ---
 function getPlayerIndex(name, orderList) { return orderList.indexOf(name); }
 function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (playerIndex - pandaIndex + totalPlayers) % totalPlayers; }
 function getDistanceRight(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (pandaIndex - playerIndex + totalPlayers) % totalPlayers; }
 
-            
 function syncLobby(snap) {
     const data = snap.val();
     if (!data) return;
-    
-    // --- 1. NEW: Live Update Host Settings if Open ---
-    // If the overlay exists, refresh the content so counters update live
+
+    // --- LIVE SETTINGS REFRESH ---
     if (document.getElementById('host-settings-overlay')) {
         const container = document.getElementById('host-settings-content');
         const isSetup = container && container.innerHTML.includes('SEATING CHART');
         renderHostSettingsContent(isSetup);
     }
-    // ------------------------------------------------
-
+    
     const lobbyEl = document.getElementById('lobby-screen');
     const waitingEl = document.getElementById('waiting-screen');
     const players = Object.values(data.players || {});
@@ -355,7 +335,6 @@ function syncLobby(snap) {
     
     multiplayerConfig.playerOrder = data.playerOrder || [];
 
-    // ... [Previous logic for Auto-Open settings remains the same] ...
     if (multiplayerConfig.isHost && data.status === "active" && data.roundNum === 0) {
         const existing = document.getElementById('host-settings-overlay');
         if (!existing && !sessionStorage.getItem('setup_shown')) {
@@ -365,7 +344,6 @@ function syncLobby(snap) {
     }
 
     if (data.status === "waiting") {
-        // ... [Existing Waiting/Lobby Logic Remains Unchanged] ...
         app.classList.add('hidden');
         waitingEl.classList.add('hidden');
         lobbyEl.classList.remove('hidden');
@@ -409,7 +387,9 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
-        if (!document.getElementById('game-scroll')) { renderGame(); }
+        if (!document.getElementById('game-scroll')) {
+            renderGame();
+        }
 
         if (activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
@@ -433,6 +413,7 @@ function syncLobby(snap) {
                 orderIndex: getPlayerIndex(p.name, orderList)
             }));
 
+            // 1. Find Panda
             const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 return a.orderIndex - b.orderIndex; 
@@ -441,6 +422,7 @@ function syncLobby(snap) {
             const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
             const totalP = orderList.length;
 
+            // 2. Picking Order
             const pickingOrder = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
@@ -448,29 +430,17 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // --- UPDATED PITY TIE BREAKER LOGIC ---
-            // Requirement: Start with person to right of panda, end with panda.
+            // 3. Pity Dice - Modified Logic (Panda Last)
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
-                
-                // Get distance going forward (Left/Clockwise)
-                // If Panda is 0, Right is 1, RightRight is 2.
                 let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
                 let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
-                
-                // If distance is 0, it means it is the Panda.
-                // We want Panda to be LAST, so we treat 0 as a very high number.
                 if (distA === 0) distA = totalP + 99;
                 if (distB === 0) distB = totalP + 99;
-                
                 return distA - distB;
             });
-            // --------------------------------------
-
             const pityList = pityOrder.slice(0, pityDiceCount);
 
-            // ... [Rest of syncLobby logic remains the same] ...
-            
             // 4. Trade List
             let tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
             tradeList.sort((a, b) => {
@@ -486,9 +456,6 @@ function syncLobby(snap) {
             
             let html = '';
 
-            // ... [Keep HTML generation logic exactly as is] ...
-            
-            // --- NEW: INDIVIDUAL SUMMARY ---
             const myRoundData = activeGame.rounds[activeGame.currentRound];
             const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
             const myRnd = calculateRoundTotal(myRoundData);
@@ -557,8 +524,8 @@ function syncLobby(snap) {
             });
             html += `</div></div>`;
 
-            // SECTION 5: GRAND TOTAL (CONDITIONAL)
-            if (data.showGrandTotal !== false) { // Default true
+            // SECTION 5: GRAND TOTAL
+            if (data.showGrandTotal !== false) { 
                 html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
                 html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
                 grandOrder.forEach((p, i) => {
@@ -601,93 +568,86 @@ function syncLobby(snap) {
     }
 }
 
-// --- HOST SETTINGS UI ---
+// --- HOST SETTINGS UI (REFACTORED) ---
 
 function openHostSettings(isSetupMode = false) {
     if(!multiplayerConfig.isHost) return;
 
-    // Check if overlay already exists
     let overlay = document.getElementById('host-settings-overlay');
-    
-    // If it doesn't exist, create the wrapper
     if(!overlay) {
         overlay = document.createElement('div');
         overlay.id = 'host-settings-overlay';
         overlay.className = 'modal-overlay animate-fadeIn';
-        // Create the container div once
         overlay.innerHTML = `<div id="host-settings-content" class="action-popup w-[90%] max-w-[350px]"></div>`;
         document.body.appendChild(overlay);
     }
-
-    // Trigger the render of the inner content
     renderHostSettingsContent(isSetupMode);
 }
 
-// New Helper function to render ONLY the content inside the popup
 function renderHostSettingsContent(isSetupMode) {
     const container = document.getElementById('host-settings-content');
     if(!container) return;
 
     get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
         const data = snap.val();
+        if(!data) return;
         const order = data.playerOrder || [];
-        const pCount = data.targetCount || 4; // Fixes Player Counter Logic
+        const pCount = data.targetCount || 4; 
         const gameCode = multiplayerConfig.code; 
         const showGT = data.showGrandTotal !== false; 
 
         container.innerHTML = `
-            <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
-            
-            <div class="mb-6 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
-                <div class="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">JOIN CODE</div>
-                <div class="text-4xl font-black text-white tracking-widest select-all">${gameCode}</div>
-            </div>
+        <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
+        
+        <div class="mb-6 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
+            <div class="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">JOIN CODE</div>
+            <div class="text-4xl font-black text-white tracking-widest select-all">${gameCode}</div>
+        </div>
 
-            ${isSetupMode ? '<p class="text-xs text-slate-400 mb-6">Arrange players starting from your Left (Clockwise)</p>' : ''}
-            
-            <div class="mb-4">
-                <div class="flex justify-between items-center mb-2">
-                     <span class="text-[10px] font-black uppercase opacity-60">Player Count</span>
+        ${isSetupMode ? '<p class="text-xs text-slate-400 mb-6">Arrange players starting from your Left (Clockwise)</p>' : ''}
+        
+        <div class="mb-4">
+            <div class="flex justify-between items-center mb-2">
+                 <span class="text-[10px] font-black uppercase opacity-60">Player Count</span>
+            </div>
+            <div class="flex items-center justify-between bg-black/20 p-2 rounded-xl border border-white/10">
+                <button onclick="adjustLobbyCount(-1)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
+                <span class="font-black text-xl">${pCount} <span class="text-[10px] opacity-50">PLAYERS</span></span>
+                <button onclick="adjustLobbyCount(1)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <button onclick="toggleScoreVisibility()" class="w-full flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/10">
+                <div class="text-left">
+                    <div class="text-xs font-black text-white uppercase">Grand Totals</div>
+                    <div class="text-[10px] text-slate-400">${showGT ? 'Visible (Competitive)' : 'Hidden (Family Mode)'}</div>
                 </div>
-                <div class="flex items-center justify-between bg-black/20 p-2 rounded-xl border border-white/10">
-                    <button onclick="adjustLobbyCount(-1)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
-                    <span class="font-black text-xl">${pCount} <span class="text-[10px] opacity-50">PLAYERS</span></span>
-                    <button onclick="adjustLobbyCount(1)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
+                <div class="w-10 h-6 rounded-full relative transition-colors ${showGT ? 'bg-green-500' : 'bg-slate-600'}">
+                    <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${showGT ? 'translate-x-4' : ''}"></div>
                 </div>
-            </div>
+            </button>
+        </div>
 
-            <div class="mb-6">
-                <button onclick="toggleScoreVisibility()" class="w-full flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/10">
-                    <div class="text-left">
-                        <div class="text-xs font-black text-white uppercase">Grand Totals</div>
-                        <div class="text-[10px] text-slate-400">${showGT ? 'Visible (Competitive)' : 'Hidden (Family Mode)'}</div>
+        <div class="mb-6">
+             <div class="text-[10px] font-black uppercase opacity-60 mb-2 text-left">Player Order (Drag/Move)</div>
+             <div id="host-order-list" class="flex flex-col gap-2 max-h-[150px] overflow-y-auto">
+                 ${order.map((p, i) => `
+                 <div class="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
+                    <span class="text-[10px] font-bold w-4 text-slate-500">${i+1}</span>
+                    <span class="flex-1 text-left font-bold text-sm truncate">${p}</span>
+                    <div class="flex gap-1">
+                        <button onclick="movePlayerOrder(${i}, -1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▲</button>
+                        <button onclick="movePlayerOrder(${i}, 1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▼</button>
                     </div>
-                    <div class="w-10 h-6 rounded-full relative transition-colors ${showGT ? 'bg-green-500' : 'bg-slate-600'}">
-                        <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${showGT ? 'translate-x-4' : ''}"></div>
-                    </div>
-                </button>
-            </div>
-
-            <div class="mb-6">
-                 <div class="text-[10px] font-black uppercase opacity-60 mb-2 text-left">Player Order (Drag/Move)</div>
-                 <div id="host-order-list" class="flex flex-col gap-2 max-h-[150px] overflow-y-auto">
-                     ${order.map((p, i) => `
-                     <div class="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
-                        <span class="text-[10px] font-bold w-4 text-slate-500">${i+1}</span>
-                        <span class="flex-1 text-left font-bold text-sm truncate">${p}</span>
-                        <div class="flex gap-1">
-                            <button onclick="movePlayerOrder(${i}, -1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▲</button>
-                            <button onclick="movePlayerOrder(${i}, 1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▼</button>
-                        </div>
-                     </div>`).join('')}
-                 </div>
-            </div>
-            
-            <div class="flex flex-col gap-3">
-                <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
-                ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
-            </div>
-        `;
+                 </div>`).join('')}
+             </div>
+        </div>
+        
+        <div class="flex flex-col gap-3">
+            <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
+            ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
+        </div>`;
     });
 }
 
@@ -699,12 +659,10 @@ function movePlayerOrder(index, direction) {
     multiplayerConfig.playerOrder = list;
     savePlayerOrder();
     
-    // Check if we are in Setup mode based on text content, refresh UI
     const container = document.getElementById('host-settings-content'); 
     const isSetup = container && container.innerHTML.includes('SEATING CHART');
-    openHostSettings(isSetup);
+    renderHostSettingsContent(isSetup);
 }
-
 
 function savePlayerOrder() {
     update(ref(db, `games/${multiplayerConfig.code}`), { playerOrder: multiplayerConfig.playerOrder });
@@ -768,20 +726,15 @@ function openGameActions(index) {
 function resumeGame(i) {
     activeGame = games[i];
     
-    // ** CRITICAL FIX: Check if this is a MultiPlayer Game **
     if (activeGame.mpCode) {
         multiplayerConfig.active = true;
         multiplayerConfig.code = activeGame.mpCode;
         multiplayerConfig.isHost = activeGame.isHost || false;
         
-        // Re-attach Firebase Listener
         onValue(ref(db, `games/${activeGame.mpCode}`), syncLobby);
         
         const m = document.getElementById('action-modal');
         if (m) m.remove();
-        
-        // syncLobby will handle the render, but we force render if active
-        // Logic handled in syncLobby now
     } else {
         multiplayerConfig.active = false; 
         const m = document.getElementById('action-modal');
@@ -878,34 +831,23 @@ function renderGame() {
     const sageUnlocked = isExpansion && activeGame.currentRound > 0 && isSageAlreadyCompleteBy(activeGame.currentRound - 1);
     const isLastRound = roundNum === 10;
      
-    // Navigation Action Buttons
     let leftAction, rightAction;
 
     if (multiplayerConfig.active) {
-        // --- MULTIPLAYER NAV ---
-        
-        // Left: Host Gear or Exit
         if (multiplayerConfig.isHost) {
             leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
-
-        // Right: SUBMIT (Replaces Arrows)
         rightAction = `<button onclick="submitMultiplayerRound()" class="bg-green-500 text-white font-black text-xs px-5 py-2 rounded-lg shadow-lg hover:bg-green-400 transition-colors uppercase tracking-wider">SUBMIT</button>`;
     
     } else {
-        // --- LOCAL NAV (Original Arrows) ---
         const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
         const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
         const nextBtn = isLastRound 
             ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
             : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
-        
-        // Left Action is Exit for local
         leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
-        
-        // For Local, we override the whole top bar content below to include the centered arrows
     }
 
     let reviewSectionHtml = '';
@@ -948,10 +890,8 @@ function renderGame() {
         diceRowsHtml += `<div class="mt-6 pt-6 border-t-4 border-yellow-500/20 animate-fadeIn">${renderDiceRow(sageDiceConfig, roundData)}</div>`;
     }
 
-    // Determine Top Bar Layout
     let topBarContent;
     if (multiplayerConfig.active) {
-        // MP Layout: Exit/Gear | Round Info | Submit
         topBarContent = `
             ${leftAction}
             <div class="text-center">
@@ -961,7 +901,6 @@ function renderGame() {
             ${rightAction}
         `;
     } else {
-        // Local Layout: Exit | < Round Info >
         const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
         const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
         const nextBtn = isLastRound 
@@ -1059,21 +998,15 @@ async function submitMultiplayerRound() {
     if(!confirm("Submit score for this round?")) return;
 
     const currentRData = activeGame.rounds[activeGame.currentRound];
-    
-    // Calculate Synced Variables
     const rTotal = calculateRoundTotal(currentRData);
     const gTotal = calculateGrandTotal(activeGame);
     const yTotal = (currentRData.yellow || []).reduce((a, b) => a + b, 0);
-    
-    // Check Natural Clear AND Wild Clear
     const hasNaturalClear = (currentRData.clear || []).length > 0;
     const hasWildClear = (currentRData.wild || []).some(w => w.target === 'clear');
     const clrUsed = hasNaturalClear || hasWildClear;
     
-    // Set Local State to Waiting
     multiplayerConfig.hasSubmitted = true;
     
-    // Push to DB
     await update(ref(db, `games/${multiplayerConfig.code}/players/${myName}`), {
         submitted: true,
         roundScore: rTotal,
@@ -1081,12 +1014,9 @@ async function submitMultiplayerRound() {
         yellowScore: yTotal,
         clearUsed: clrUsed
     });
-    
-    // UI updates via syncLobby automatically
 }
 
 async function changeRound(s) { 
-    // LOCAL LOGIC ONLY
     if (!multiplayerConfig.active) {
         const n = activeGame.currentRound + s; 
         if (n < 0 || n >= 10) return;
