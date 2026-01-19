@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Panda Royale Multiplayer</title>
+    <title>Panda Royale</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="manifest.json">
@@ -12,11 +12,32 @@
 </head>
 <body class="h-full select-none overflow-hidden">
     <div id="app" class="h-full w-full flex flex-col"></div>
-
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     
-    <script src="app.js"></script>
+    <div id="lobby-screen" class="hidden h-full w-full flex-col bg-[#0f172a] p-6 animate-fadeIn absolute inset-0 z-50">
+        <h2 class="text-4xl font-black text-white mb-2 tracking-tighter">LOBBY</h2>
+        <h3 id="lobby-code-display" class="text-xl font-bold text-green-400 tracking-widest uppercase mb-8">CODE: ----</h3>
+        <div id="lobby-player-list" class="flex-1 space-y-3 overflow-y-auto"></div>
+        <p class="text-center text-slate-500 text-xs font-black uppercase tracking-widest mt-4 mb-4 animate-pulse">Waiting for host to start...</p>
+        <button onclick="window.leaveLobby()" class="w-full bg-slate-800 py-4 rounded-2xl font-black text-white mb-4">LEAVE</button>
+    </div>
+
+    <div id="waiting-screen" class="hidden h-full w-full flex-col bg-[#0f172a] p-6 animate-fadeIn absolute inset-0 z-50">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-black text-white tracking-tighter">ROUND SUMMARY</h2>
+            <button onclick="window.editMyScore()" class="px-4 py-2 bg-slate-800 rounded-lg text-[10px] font-black uppercase text-slate-400">EDIT SCORE</button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto">
+            <div id="waiting-list" class="space-y-3"></div>
+        </div>
+
+        <div class="mt-4">
+            <button id="host-next-btn" onclick="window.hostPushNextRound()" class="hidden w-full bg-yellow-500 text-black py-4 rounded-2xl font-black text-xl shadow-lg mb-3">START NEXT ROUND</button>
+            <p id="waiting-msg" class="text-center text-slate-500 text-xs font-black uppercase tracking-widest mb-2 animate-pulse">Waiting for other players...</p>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js'); });
