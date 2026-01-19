@@ -435,7 +435,16 @@ function syncLobby(snap) {
             const grandOrder = [...calcPlayers].sort((a,b) => b.grandTotal - a.grandTotal);
             
             let html = '';
-
+            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">YOUR ROUND SUMMARY</div>`;
+            if (activeGame.currentRound > 0) {
+                const pr = activeGame.rounds[activeGame.currentRound];
+                reviewSectionHtml += `
+                    <div class="animate-fadeIn">
+                    <div class="prev-round-box"><span>Prev Round Yellow Total</span><span class="text-xl">${(pr.yellow || []).reduce((a,b)=>a+b,0)}</span></div>
+                    <div class="prev-total-box"><span>Last Round Total Score</span><span class="text-xl">${calculateRoundTotal(pr)}</span></div>
+                </div>`;
+            });
+            html += `</div>`;
             // SECTION 1: THE PANDA
             html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
             if (pandaPlayer && pandaPlayer.submitted) {
