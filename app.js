@@ -822,7 +822,7 @@ function renderGame() {
         
         // Left: Host Gear or Exit
         if (multiplayerConfig.isHost) {
-            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
+            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">HOST<span class="text-xl">⚙️</span></button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
