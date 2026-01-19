@@ -56,7 +56,7 @@ Object.assign(window, {
     openHostModeSelect, finalizeHostGame, joinExistingGame, leaveLobby,
     editMyScore, hostPushNextRound, adjustLobbyCount, openHostSettings,
     movePlayerOrder, savePlayerOrder, closeHostSettings, exitHostGame,
-    submitMultiplayerRound, toggleScoreVisibility
+    submitMultiplayerRound, toggleScoreVisibility, updatePlayerName
 });
 
 function applySettings() {
@@ -138,13 +138,20 @@ function finishOnboarding() {
     showHome();
 }
 
+// --- NEW FUNCTION: Update Player Name Live ---
+function updatePlayerName(val) {
+    myName = val;
+    localStorage.setItem('panda_name', val);
+}
+
 function showHome() {
     activeInputField = null; 
     document.getElementById('lobby-screen').classList.add('hidden');
     document.getElementById('waiting-screen').classList.add('hidden');
     
+    // Set default name if missing but don't prompt
     if (!myName) {
-        myName = prompt("Enter your Player Name:") || "Player";
+        myName = "Panda";
         localStorage.setItem('panda_name', myName);
     }
 
@@ -171,6 +178,16 @@ function showHome() {
             <h1 class="text-4xl font-black tracking-tighter">History</h1>
             <button onclick="toggleMenu()" class="p-2 bg-black/5 rounded-xl"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.5" stroke-linecap="round" d="M4 6h16M4 12h16m-7 6h7"></path></svg></button>
         </div>
+
+        <div class="bg-black/5 p-2 rounded-2xl border border-[var(--border-ui)] mb-6 flex items-center">
+            <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-2xl shadow-sm">🐼</div>
+            <div class="flex-1 ml-3">
+                <label class="block text-[8px] font-black uppercase opacity-40 tracking-widest">Player Name</label>
+                <input type="text" value="${myName}" oninput="updatePlayerName(this.value)" class="w-full bg-transparent border-none outline-none font-black text-lg text-[var(--text-primary)] p-0 m-0 focus:ring-0 placeholder:opacity-30" placeholder="ENTER NAME">
+            </div>
+            <div class="opacity-30 pr-3">✎</div>
+        </div>
+
         <div class="flex gap-3 mb-6">
             <button onclick="openHostModeSelect()" class="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg">Host</button>
             <button onclick="joinExistingGame()" class="flex-1 py-4 bg-slate-800 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg">Join</button>
@@ -822,7 +839,7 @@ function renderGame() {
         
         // Left: Host Gear or Exit
         if (multiplayerConfig.isHost) {
-            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">HOST<span class="text-xl">⚙️</span></button>`;
+            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">HOST<span class="text-base">⚙️</span></button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
