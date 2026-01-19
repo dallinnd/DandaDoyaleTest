@@ -150,14 +150,17 @@ function showHome() {
 
     const gameCards = games.map((g, i) => {
         const isFinished = (g.currentRound === 9);
+        // Show Badge if MP Game
+        const mpBadge = g.mpCode ? `<span class="ml-2 px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[8px] font-black rounded-full border border-purple-500/30 uppercase tracking-widest">ONLINE</span>` : '';
         const statusBadge = isFinished 
             ? `<span class="ml-2 px-2 py-0.5 bg-green-500/20 text-green-500 text-[8px] font-black rounded-full border border-green-500/30 uppercase tracking-widest">Finished</span>` 
             : `<span class="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-500 text-[8px] font-black rounded-full border border-blue-500/30 uppercase tracking-widest">Round ${g.currentRound + 1}</span>`;
+        
         return `
         <div class="bg-[var(--bg-card)] p-6 rounded-2xl mb-4 flex justify-between items-center border border-[var(--border-ui)] active:scale-[0.98] transition-all cursor-pointer" onclick="openGameActions(${i})">
             <div class="flex-1 pointer-events-none">
                 <div class="flex items-center text-[10px] font-black opacity-40 uppercase tracking-widest">
-                    ${g.mode || 'normal'} #${games.length - i} ${statusBadge}
+                    ${g.mode || 'normal'} #${games.length - i} ${statusBadge} ${mpBadge}
                 </div>
                 <div class="text-xl font-bold mt-1">${g.date}</div>
             </div>
@@ -206,6 +209,11 @@ async function finalizeHostGame(mode) {
     
     initGame(mode, true); 
     
+    // SAVE CODE TO LOCAL GAME OBJECT TO ALLOW RESUME
+    activeGame.mpCode = newCode;
+    activeGame.isHost = true;
+    saveGame(); // Save immediately to local storage
+    
     await set(ref(db, `games/${newCode}`), { 
         host: myName, 
         mode: mode,
@@ -230,15 +238,21 @@ async function finalizeHostGame(mode) {
 async function joinExistingGame() {
     let code = prompt("Enter Game Code:");
     if (!code) return;
-    multiplayerConfig.active = true;
-    multiplayerConfig.isHost = false;
-    multiplayerConfig.code = code;
     
     const gSnap = await get(ref(db, `games/${code}`));
     if(!gSnap.exists()) return alert("Game not found!");
     
+    multiplayerConfig.active = true;
+    multiplayerConfig.isHost = false;
+    multiplayerConfig.code = code;
+    
     const gameMode = gSnap.val().mode || 'normal';
     initGame(gameMode, true); 
+
+    // SAVE CODE TO LOCAL GAME OBJECT TO ALLOW RESUME
+    activeGame.mpCode = code;
+    activeGame.isHost = false;
+    saveGame(); // Save immediately to local storage
 
     const pRef = ref(db, `games/${code}/players/${myName}`);
     const snap = await get(pRef);
@@ -348,7 +362,7 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
-        // ** CRITICAL FIX: Ensure Game Rendered on Start **
+        // ** CRITICAL FIX: Ensure Game Rendered on Start/Resume **
         if (!document.getElementById('game-scroll')) {
             renderGame();
         }
@@ -358,7 +372,7 @@ function syncLobby(snap) {
             activeGame.currentRound = data.roundNum;
             multiplayerConfig.hasSubmitted = false;
             saveGame();
-            renderGame(); // Only re-render if the round actually changes
+            renderGame(); 
         }
 
         if (multiplayerConfig.hasSubmitted) {
@@ -643,11 +657,28 @@ function openGameActions(index) {
 
 function resumeGame(i) {
     activeGame = games[i];
-    multiplayerConfig.active = false; 
-    const m = document.getElementById('action-modal');
-    if (m) m.remove();
-    renderGame();
-    setActiveInput('yellow'); 
+    
+    // ** CRITICAL FIX: Check if this is a MultiPlayer Game **
+    if (activeGame.mpCode) {
+        multiplayerConfig.active = true;
+        multiplayerConfig.code = activeGame.mpCode;
+        multiplayerConfig.isHost = activeGame.isHost || false;
+        
+        // Re-attach Firebase Listener
+        onValue(ref(db, `games/${activeGame.mpCode}`), syncLobby);
+        
+        const m = document.getElementById('action-modal');
+        if (m) m.remove();
+        
+        // syncLobby will handle the render, but we force render if active
+        // Logic handled in syncLobby now
+    } else {
+        multiplayerConfig.active = false; 
+        const m = document.getElementById('action-modal');
+        if (m) m.remove();
+        renderGame();
+        setActiveInput('yellow'); 
+    }
 }
 
 function confirmDelete(index) {
