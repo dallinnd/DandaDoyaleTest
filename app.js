@@ -435,22 +435,32 @@ function syncLobby(snap) {
             const grandOrder = [...calcPlayers].sort((a,b) => b.grandTotal - a.grandTotal);
             
             let html = '';
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">YOUR ROUND SUMMARY</div>`;
-            if (activeGame.currentRound > 0) {
-                const pr = activeGame.rounds[activeGame.currentRound];
-                reviewSectionHtml += `
-                    <div class="animate-fadeIn">
-                    <div class="prev-round-box"><span>Prev Round Yellow Total</span><span class="text-xl">${(pr.yellow || []).reduce((a,b)=>a+b,0)}</span></div>
-                    <div class="prev-total-box"><span>Last Round Total Score</span><span class="text-xl">${calculateRoundTotal(pr)}</span></div>
-                </div>`;
-            });
-            html += `</div>`;
+
+            // --- NEW: INDIVIDUAL SUMMARY ---
+            // Calculate my own stats for this round (even if local data is stale, we can pull from what we just submitted or calculate)
+            const myRoundData = activeGame.rounds[activeGame.currentRound];
+            const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
+            const myRnd = calculateRoundTotal(myRoundData);
+
+            html += `
+            <div class="mb-6 animate-fadeIn">
+                <div class="text-[10px] font-black uppercase opacity-50 tracking-widest mb-2 text-center">YOUR PERFORMANCE</div>
+                <div class="prev-round-box bg-[#fbbf24] text-black border-none mb-2">
+                    <span>Yellow Total</span>
+                    <span class="text-xl font-black">${myYel}</span>
+                </div>
+                <div class="prev-total-box bg-[#1e293b] text-[#f1f5f9] border-[#1e293b]">
+                    <span>Round Score</span>
+                    <span class="text-xl font-black">${myRnd}</span>
+                </div>
+            </div>`;
+
             // SECTION 1: THE PANDA
             html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
             if (pandaPlayer && pandaPlayer.submitted) {
-                html += `<div class="prev-round-box bg-[#fbbf24] text-black border-none">
-                    <span class="text-xl font-black">${pandaPlayer.name}</span>
-                    <span class="text-2xl font-black">${pandaPlayer.yellowScore}</span>
+                html += `<div class="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex justify-between items-center">
+                    <span class="text-xl font-black text-yellow-400">${pandaPlayer.name}</span>
+                    <span class="text-2xl font-black text-white">${pandaPlayer.yellowScore}</span>
                 </div>`;
             } else { html += `<div class="opacity-30 italic pl-2 text-xs">Determining...</div>`; }
             html += `</div>`;
@@ -461,9 +471,9 @@ function syncLobby(snap) {
                  html += `<div class="grid grid-cols-1 gap-2">`;
                  pityList.forEach(p => {
                     const val = p.submitted ? p.roundScore : '-';
-                    html += `<div class="prev-total-box bg-[#1e293b] text-[#f1f5f9] border-[#1e293b]">
+                    html += `<div class="bg-pink-500/10 border border-pink-500/50 p-3 rounded-xl flex justify-between items-center">
                         <span class="font-bold text-pink-400">${p.name}</span>
-                        <span class="font-black text-white text-lg">${val}</span>
+                        <span class="font-mono text-white text-xs">Round: ${val}</span>
                     </div>`;
                  });
                  html += `</div>`;
