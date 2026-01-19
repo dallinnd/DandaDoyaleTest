@@ -56,7 +56,7 @@ Object.assign(window, {
     openHostModeSelect, finalizeHostGame, joinExistingGame, leaveLobby,
     editMyScore, hostPushNextRound, adjustLobbyCount, openHostSettings,
     movePlayerOrder, savePlayerOrder, closeHostSettings, exitHostGame,
-    submitMultiplayerRound
+    submitMultiplayerRound, toggleScoreVisibility
 });
 
 function applySettings() {
@@ -217,7 +217,8 @@ async function finalizeHostGame(mode) {
         status: "waiting", 
         roundNum: 0,
         targetCount: 4,
-        playerOrder: [myName] 
+        playerOrder: [myName],
+        showGrandTotal: true // Default to Competative
     });
 
     await set(ref(db, `games/${newCode}/players/${myName}`), { 
@@ -286,6 +287,16 @@ function adjustLobbyCount(delta) {
         let current = snap.val() || 4;
         let next = Math.max(1, Math.min(20, current + delta));
         update(ref(db, `games/${multiplayerConfig.code}`), { targetCount: next });
+    });
+}
+
+function toggleScoreVisibility() {
+    if(!multiplayerConfig.isHost) return;
+    get(ref(db, `games/${multiplayerConfig.code}/showGrandTotal`)).then((snap) => {
+        const current = snap.val();
+        update(ref(db, `games/${multiplayerConfig.code}`), { showGrandTotal: !current });
+        // Refresh UI
+        setTimeout(() => openHostSettings(false), 200);
     });
 }
 
@@ -410,16 +421,13 @@ function syncLobby(snap) {
             });
             const pityList = pityOrder.slice(0, pityDiceCount);
 
-            // 4. Trade List (UPDATED LOGIC)
+            // 4. Trade List
             let tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
             tradeList.sort((a, b) => {
                 let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
                 let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
-                
-                // If distance is 0 (Panda), push them to the end
                 if (distA === 0) distA = 9999;
                 if (distB === 0) distB = 9999;
-                
                 return distA - distB;
             });
 
@@ -431,9 +439,9 @@ function syncLobby(snap) {
             // SECTION 1: THE PANDA
             html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
             if (pandaPlayer && pandaPlayer.submitted) {
-                html += `<div class="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex justify-between items-center">
-                    <span class="text-xl font-black text-yellow-400">${pandaPlayer.name}</span>
-                    <span class="text-2xl font-black text-white">${pandaPlayer.yellowScore}</span>
+                html += `<div class="prev-round-box bg-[#fbbf24] text-black border-none">
+                    <span class="text-xl font-black">${pandaPlayer.name}</span>
+                    <span class="text-2xl font-black">${pandaPlayer.yellowScore}</span>
                 </div>`;
             } else { html += `<div class="opacity-30 italic pl-2 text-xs">Determining...</div>`; }
             html += `</div>`;
@@ -444,9 +452,9 @@ function syncLobby(snap) {
                  html += `<div class="grid grid-cols-1 gap-2">`;
                  pityList.forEach(p => {
                     const val = p.submitted ? p.roundScore : '-';
-                    html += `<div class="bg-pink-500/10 border border-pink-500/50 p-3 rounded-xl flex justify-between items-center">
+                    html += `<div class="prev-total-box bg-[#1e293b] text-[#f1f5f9] border-[#1e293b]">
                         <span class="font-bold text-pink-400">${p.name}</span>
-                        <span class="font-mono text-white text-xs">Round: ${val}</span>
+                        <span class="font-black text-white text-lg">${val}</span>
                     </div>`;
                  });
                  html += `</div>`;
@@ -474,24 +482,28 @@ function syncLobby(snap) {
                         <span class="text-[10px] font-black w-4 text-slate-500">${i+1}</span>
                         <span class="font-bold text-sm ${p.name===myName?'text-blue-400':'text-slate-300'}">${p.name}</span>
                     </div>
-                    <span class="text-xs font-mono text-yellow-500/70">${val}</span>
+                    <div class="bg-[#fbbf24] text-black px-2 py-0.5 rounded-lg text-xs font-black">${val}</div>
                 </div>`;
             });
             html += `</div></div>`;
 
-            // SECTION 5: GRAND TOTAL
-            html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
-            html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
-            grandOrder.forEach((p, i) => {
-                html += `<div class="p-3 flex justify-between items-center">
-                    <div class="flex items-center gap-3">
-                        <span class="text-[10px] font-black w-4 text-green-700">${i+1}</span>
-                        <span class="font-bold text-sm ${p.name===myName?'text-green-400':'text-white'}">${p.name} ${p.submitted?'':'...'}</span>
-                    </div>
-                    <span class="font-black text-green-500">${p.grandTotal||0}</span>
-                </div>`;
-            });
-            html += `</div></div>`;
+            // SECTION 5: GRAND TOTAL (CONDITIONAL)
+            if (data.showGrandTotal !== false) { // Default true
+                html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
+                html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
+                grandOrder.forEach((p, i) => {
+                    html += `<div class="p-3 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-black w-4 text-green-700">${i+1}</span>
+                            <span class="font-bold text-sm ${p.name===myName?'text-green-400':'text-white'}">${p.name} ${p.submitted?'':'...'}</span>
+                        </div>
+                        <span class="font-black text-green-500">${p.grandTotal||0}</span>
+                    </div>`;
+                });
+                html += `</div></div>`;
+            } else {
+                html += `<div class="mb-8 text-center text-xs text-slate-500 font-bold italic opacity-50">Family Mode Active (Leaderboard Hidden)</div>`;
+            }
 
             // SECTION 6: WAITING FOR
             const waitingFor = players.filter(p => !p.submitted);
@@ -531,54 +543,71 @@ function openHostSettings(isSetupMode = false) {
     overlay.id = 'host-settings-overlay';
     overlay.className = 'modal-overlay animate-fadeIn';
     
-    const order = multiplayerConfig.playerOrder;
-    const pCount = order.length;
-    const gameCode = multiplayerConfig.code; 
-    
-    overlay.innerHTML = `
-    <div class="action-popup w-[90%] max-w-[350px]">
-        <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
-        
-        <div class="mb-6 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
-            <div class="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">JOIN CODE</div>
-            <div class="text-4xl font-black text-white tracking-widest select-all">${gameCode}</div>
-        </div>
+    // Fetch fresh state to ensure toggles are accurate
+    get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
+        const data = snap.val();
+        const order = data.playerOrder || [];
+        const pCount = order.length;
+        const gameCode = multiplayerConfig.code; 
+        const showGT = data.showGrandTotal !== false; // Default true
 
-        ${isSetupMode ? '<p class="text-xs text-slate-400 mb-6">Arrange players starting from your Left (Clockwise)</p>' : ''}
-        
-        <div class="mb-6">
-            <div class="flex justify-between items-center mb-2">
-                 <span class="text-[10px] font-black uppercase opacity-60">Player Count</span>
+        overlay.innerHTML = `
+        <div class="action-popup w-[90%] max-w-[350px]">
+            <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
+            
+            <div class="mb-6 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
+                <div class="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">JOIN CODE</div>
+                <div class="text-4xl font-black text-white tracking-widest select-all">${gameCode}</div>
             </div>
-            <div class="flex items-center justify-between bg-black/20 p-2 rounded-xl border border-white/10">
-                <button onclick="adjustLobbyCount(-1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
-                <span class="font-black text-xl">${pCount} <span class="text-[10px] opacity-50">PLAYERS</span></span>
-                <button onclick="adjustLobbyCount(1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
-            </div>
-        </div>
 
-        <div class="mb-6">
-             <div class="text-[10px] font-black uppercase opacity-60 mb-2 text-left">Player Order (Drag/Move)</div>
-             <div id="host-order-list" class="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
-                 ${order.map((p, i) => `
-                 <div class="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
-                    <span class="text-[10px] font-bold w-4 text-slate-500">${i+1}</span>
-                    <span class="flex-1 text-left font-bold text-sm truncate">${p}</span>
-                    <div class="flex gap-1">
-                        <button onclick="movePlayerOrder(${i}, -1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▲</button>
-                        <button onclick="movePlayerOrder(${i}, 1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▼</button>
+            ${isSetupMode ? '<p class="text-xs text-slate-400 mb-6">Arrange players starting from your Left (Clockwise)</p>' : ''}
+            
+            <div class="mb-4">
+                <div class="flex justify-between items-center mb-2">
+                     <span class="text-[10px] font-black uppercase opacity-60">Player Count</span>
+                </div>
+                <div class="flex items-center justify-between bg-black/20 p-2 rounded-xl border border-white/10">
+                    <button onclick="adjustLobbyCount(-1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
+                    <span class="font-black text-xl">${pCount} <span class="text-[10px] opacity-50">PLAYERS</span></span>
+                    <button onclick="adjustLobbyCount(1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
+                </div>
+            </div>
+
+            <div class="mb-6">
+                <button onclick="toggleScoreVisibility()" class="w-full flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/10">
+                    <div class="text-left">
+                        <div class="text-xs font-black text-white uppercase">Grand Totals</div>
+                        <div class="text-[10px] text-slate-400">${showGT ? 'Visible (Competitive)' : 'Hidden (Family Mode)'}</div>
                     </div>
-                 </div>`).join('')}
-             </div>
-        </div>
+                    <div class="w-10 h-6 rounded-full relative transition-colors ${showGT ? 'bg-green-500' : 'bg-slate-600'}">
+                        <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${showGT ? 'translate-x-4' : ''}"></div>
+                    </div>
+                </button>
+            </div>
+
+            <div class="mb-6">
+                 <div class="text-[10px] font-black uppercase opacity-60 mb-2 text-left">Player Order (Drag/Move)</div>
+                 <div id="host-order-list" class="flex flex-col gap-2 max-h-[150px] overflow-y-auto">
+                     ${order.map((p, i) => `
+                     <div class="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
+                        <span class="text-[10px] font-bold w-4 text-slate-500">${i+1}</span>
+                        <span class="flex-1 text-left font-bold text-sm truncate">${p}</span>
+                        <div class="flex gap-1">
+                            <button onclick="movePlayerOrder(${i}, -1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▲</button>
+                            <button onclick="movePlayerOrder(${i}, 1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▼</button>
+                        </div>
+                     </div>`).join('')}
+                 </div>
+            </div>
+            
+            <div class="flex flex-col gap-3">
+                <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
+                ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
+            </div>
+        </div>`;
         
-        <div class="flex flex-col gap-3">
-            <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
-            ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
-        </div>
-    </div>`;
-    
-    document.body.appendChild(overlay);
+        document.body.appendChild(overlay);
+    });
 }
 
 function movePlayerOrder(index, direction) {
