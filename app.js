@@ -150,12 +150,10 @@ function showHome() {
 
     const gameCards = games.map((g, i) => {
         const isFinished = (g.currentRound === 9);
-        // Show Badge if MP Game
         const mpBadge = g.mpCode ? `<span class="ml-2 px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[8px] font-black rounded-full border border-purple-500/30 uppercase tracking-widest">ONLINE</span>` : '';
         const statusBadge = isFinished 
             ? `<span class="ml-2 px-2 py-0.5 bg-green-500/20 text-green-500 text-[8px] font-black rounded-full border border-green-500/30 uppercase tracking-widest">Finished</span>` 
             : `<span class="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-500 text-[8px] font-black rounded-full border border-blue-500/30 uppercase tracking-widest">Round ${g.currentRound + 1}</span>`;
-        
         return `
         <div class="bg-[var(--bg-card)] p-6 rounded-2xl mb-4 flex justify-between items-center border border-[var(--border-ui)] active:scale-[0.98] transition-all cursor-pointer" onclick="openGameActions(${i})">
             <div class="flex-1 pointer-events-none">
@@ -209,10 +207,9 @@ async function finalizeHostGame(mode) {
     
     initGame(mode, true); 
     
-    // SAVE CODE TO LOCAL GAME OBJECT TO ALLOW RESUME
     activeGame.mpCode = newCode;
     activeGame.isHost = true;
-    saveGame(); // Save immediately to local storage
+    saveGame();
     
     await set(ref(db, `games/${newCode}`), { 
         host: myName, 
@@ -249,10 +246,9 @@ async function joinExistingGame() {
     const gameMode = gSnap.val().mode || 'normal';
     initGame(gameMode, true); 
 
-    // SAVE CODE TO LOCAL GAME OBJECT TO ALLOW RESUME
     activeGame.mpCode = code;
     activeGame.isHost = false;
-    saveGame(); // Save immediately to local storage
+    saveGame();
 
     const pRef = ref(db, `games/${code}/players/${myName}`);
     const snap = await get(pRef);
@@ -362,12 +358,10 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
-        // ** CRITICAL FIX: Ensure Game Rendered on Start/Resume **
         if (!document.getElementById('game-scroll')) {
             renderGame();
         }
 
-        // Auto-sync round number if changed
         if (activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
             multiplayerConfig.hasSubmitted = false;
@@ -390,7 +384,7 @@ function syncLobby(snap) {
                 orderIndex: getPlayerIndex(p.name, orderList)
             }));
 
-            // 1. Find Panda (Highest Yellow, tie-break seat index)
+            // 1. Find Panda
             const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 return a.orderIndex - b.orderIndex; 
@@ -399,7 +393,7 @@ function syncLobby(snap) {
             const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
             const totalP = orderList.length;
 
-            // 2. Picking Order (Yellow Desc, tie-break Distance Left from Panda)
+            // 2. Picking Order
             const pickingOrder = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
@@ -407,7 +401,7 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // 3. Pity Dice (Round Score Asc, tie-break Distance Right from Panda)
+            // 3. Pity Dice
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
                 const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
@@ -416,11 +410,16 @@ function syncLobby(snap) {
             });
             const pityList = pityOrder.slice(0, pityDiceCount);
 
-            // 4. Trade List (Clear used, sorted by Distance Left from Panda)
+            // 4. Trade List (UPDATED LOGIC)
             let tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
             tradeList.sort((a, b) => {
-                const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
-                const distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+                let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
+                let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+                
+                // If distance is 0 (Panda), push them to the end
+                if (distA === 0) distA = 9999;
+                if (distB === 0) distB = 9999;
+                
                 return distA - distB;
             });
 
@@ -516,7 +515,6 @@ function syncLobby(snap) {
         } else {
             waitingEl.classList.add('hidden');
             app.classList.remove('hidden');
-            // NO renderGame() here! It prevents scroll jumping/refreshing for active users.
         }
     }
 }
