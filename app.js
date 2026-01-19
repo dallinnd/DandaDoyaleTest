@@ -348,6 +348,11 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
+        // ** CRITICAL FIX: Ensure Game Rendered on Start **
+        if (!document.getElementById('game-scroll')) {
+            renderGame();
+        }
+
         // Auto-sync round number if changed
         if (activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
@@ -503,6 +508,7 @@ function syncLobby(snap) {
 }
 
 // --- HOST SETTINGS UI ---
+
 function openHostSettings(isSetupMode = false) {
     if(!multiplayerConfig.isHost) return;
 
@@ -515,7 +521,7 @@ function openHostSettings(isSetupMode = false) {
     
     const order = multiplayerConfig.playerOrder;
     const pCount = order.length;
-    const gameCode = multiplayerConfig.code; // Get the code
+    const gameCode = multiplayerConfig.code; 
     
     overlay.innerHTML = `
     <div class="action-popup w-[90%] max-w-[350px]">
@@ -562,8 +568,6 @@ function openHostSettings(isSetupMode = false) {
     
     document.body.appendChild(overlay);
 }
-
- 
 
 function movePlayerOrder(index, direction) {
     const list = [...multiplayerConfig.playerOrder];
