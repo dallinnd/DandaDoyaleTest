@@ -849,24 +849,7 @@ function renderGame() {
         rightAction = `<button onclick="submitMultiplayerRound()" class="bg-green-500 text-white font-black text-xs px-5 py-2 rounded-lg shadow-lg hover:bg-green-400 transition-colors uppercase tracking-wider">SUBMIT</button>`;
     
     } else {
-        const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
-        const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
-        const nextBtn = isLastRound 
-            ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
-            : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
-        
-        topBarContent = `
-            <button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>
-            <div class="flex items-center gap-6">
-                <button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>
-                <div class="text-center">
-                    <div class="text-xl font-black uppercase">Round ${roundNum}</div>
-                    <div id="round-total-display" class="text-5xl font-black">0</div>
-                </div>
-                ${nextBtn}
-            </div>
-            <div class="w-10"></div>
-        `;
+        leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
     }
 
     let reviewSectionHtml = '';
@@ -907,6 +890,41 @@ function renderGame() {
      
     if (sageUnlocked && roundNum > 1) {
         diceRowsHtml += `<div class="mt-6 pt-6 border-t-4 border-yellow-500/20 animate-fadeIn">${renderDiceRow(sageDiceConfig, roundData)}</div>`;
+    }
+
+    // --- FIX: DEFINE topBarContent BEFORE USING IT ---
+    let topBarContent;
+    
+    if (multiplayerConfig.active) {
+        // Multiplayer Header Construction
+        topBarContent = `
+            ${leftAction}
+            <div class="text-center">
+                <div class="text-xl font-black uppercase">Round ${roundNum}</div>
+                <div id="round-total-display" class="text-5xl font-black">0</div>
+            </div>
+            ${rightAction}
+        `;
+    } else {
+        // Local Game Header Construction
+        const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
+        const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
+        const nextBtn = isLastRound 
+            ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
+            : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
+        
+        topBarContent = `
+            ${leftAction}
+            <div class="flex items-center gap-6">
+                <button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>
+                <div class="text-center">
+                    <div class="text-xl font-black uppercase">Round ${roundNum}</div>
+                    <div id="round-total-display" class="text-5xl font-black">0</div>
+                </div>
+                ${nextBtn}
+            </div>
+            <div class="w-10"></div>
+        `;
     }
 
     app.innerHTML = `<div class="scroll-area" id="game-scroll">
