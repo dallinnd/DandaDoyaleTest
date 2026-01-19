@@ -606,23 +606,36 @@ function syncLobby(snap) {
 function openHostSettings(isSetupMode = false) {
     if(!multiplayerConfig.isHost) return;
 
-    const existing = document.getElementById('host-settings-overlay');
-    if(existing) existing.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'host-settings-overlay';
-    overlay.className = 'modal-overlay animate-fadeIn';
+    // Check if overlay already exists
+    let overlay = document.getElementById('host-settings-overlay');
     
-    // Fetch fresh state to ensure toggles are accurate
+    // If it doesn't exist, create the wrapper
+    if(!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'host-settings-overlay';
+        overlay.className = 'modal-overlay animate-fadeIn';
+        // Create the container div once
+        overlay.innerHTML = `<div id="host-settings-content" class="action-popup w-[90%] max-w-[350px]"></div>`;
+        document.body.appendChild(overlay);
+    }
+
+    // Trigger the render of the inner content
+    renderHostSettingsContent(isSetupMode);
+}
+
+// New Helper function to render ONLY the content inside the popup
+function renderHostSettingsContent(isSetupMode) {
+    const container = document.getElementById('host-settings-content');
+    if(!container) return;
+
     get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
         const data = snap.val();
         const order = data.playerOrder || [];
-        const pCount = order.length;
+        const pCount = data.targetCount || 4; // Fixes Player Counter Logic
         const gameCode = multiplayerConfig.code; 
-        const showGT = data.showGrandTotal !== false; // Default true
+        const showGT = data.showGrandTotal !== false; 
 
-        overlay.innerHTML = `
-        <div class="action-popup w-[90%] max-w-[350px]">
+        container.innerHTML = `
             <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
             
             <div class="mb-6 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
@@ -637,9 +650,9 @@ function openHostSettings(isSetupMode = false) {
                      <span class="text-[10px] font-black uppercase opacity-60">Player Count</span>
                 </div>
                 <div class="flex items-center justify-between bg-black/20 p-2 rounded-xl border border-white/10">
-                    <button onclick="adjustLobbyCount(-1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
+                    <button onclick="adjustLobbyCount(-1)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
                     <span class="font-black text-xl">${pCount} <span class="text-[10px] opacity-50">PLAYERS</span></span>
-                    <button onclick="adjustLobbyCount(1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
+                    <button onclick="adjustLobbyCount(1)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
                 </div>
             </div>
 
@@ -674,9 +687,7 @@ function openHostSettings(isSetupMode = false) {
                 <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
                 ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
             </div>
-        </div>`;
-        
-        document.body.appendChild(overlay);
+        `;
     });
 }
 
@@ -688,10 +699,12 @@ function movePlayerOrder(index, direction) {
     multiplayerConfig.playerOrder = list;
     savePlayerOrder();
     
-    const existing = document.getElementById('host-settings-overlay'); 
-    const isSetup = existing.innerHTML.includes('SEATING CHART');
+    // Check if we are in Setup mode based on text content, refresh UI
+    const container = document.getElementById('host-settings-content'); 
+    const isSetup = container && container.innerHTML.includes('SEATING CHART');
     openHostSettings(isSetup);
 }
+
 
 function savePlayerOrder() {
     update(ref(db, `games/${multiplayerConfig.code}`), { playerOrder: multiplayerConfig.playerOrder });
