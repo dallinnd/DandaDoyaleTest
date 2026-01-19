@@ -1001,7 +1001,6 @@ function updateKeypadTheme(bgColor, textColor) {
 
 async function submitMultiplayerRound() {
     if(!multiplayerConfig.active) return;
-    if(!confirm("Submit score for this round?")) return;
 
     const currentRData = activeGame.rounds[activeGame.currentRound];
     const rTotal = calculateRoundTotal(currentRData);
