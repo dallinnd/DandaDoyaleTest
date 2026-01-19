@@ -305,7 +305,18 @@ function adjustLobbyCount(delta) {
         let next = Math.max(1, Math.min(20, current + delta));
         update(ref(db, `games/${multiplayerConfig.code}`), { targetCount: next });
     });
+    // Removed setTimeout(openHostSettings) to stop flashing
 }
+
+function toggleScoreVisibility() {
+    if(!multiplayerConfig.isHost) return;
+    get(ref(db, `games/${multiplayerConfig.code}/showGrandTotal`)).then((snap) => {
+        const current = snap.val();
+        update(ref(db, `games/${multiplayerConfig.code}`), { showGrandTotal: !current });
+        // Removed setTimeout(openHostSettings) to stop flashing
+    });
+}
+
 
 function toggleScoreVisibility() {
     if(!multiplayerConfig.isHost) return;
@@ -322,10 +333,20 @@ function getPlayerIndex(name, orderList) { return orderList.indexOf(name); }
 function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (playerIndex - pandaIndex + totalPlayers) % totalPlayers; }
 function getDistanceRight(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (pandaIndex - playerIndex + totalPlayers) % totalPlayers; }
 
+            
 function syncLobby(snap) {
     const data = snap.val();
     if (!data) return;
     
+    // --- 1. NEW: Live Update Host Settings if Open ---
+    // If the overlay exists, refresh the content so counters update live
+    if (document.getElementById('host-settings-overlay')) {
+        const container = document.getElementById('host-settings-content');
+        const isSetup = container && container.innerHTML.includes('SEATING CHART');
+        renderHostSettingsContent(isSetup);
+    }
+    // ------------------------------------------------
+
     const lobbyEl = document.getElementById('lobby-screen');
     const waitingEl = document.getElementById('waiting-screen');
     const players = Object.values(data.players || {});
@@ -334,6 +355,7 @@ function syncLobby(snap) {
     
     multiplayerConfig.playerOrder = data.playerOrder || [];
 
+    // ... [Previous logic for Auto-Open settings remains the same] ...
     if (multiplayerConfig.isHost && data.status === "active" && data.roundNum === 0) {
         const existing = document.getElementById('host-settings-overlay');
         if (!existing && !sessionStorage.getItem('setup_shown')) {
@@ -343,6 +365,7 @@ function syncLobby(snap) {
     }
 
     if (data.status === "waiting") {
+        // ... [Existing Waiting/Lobby Logic Remains Unchanged] ...
         app.classList.add('hidden');
         waitingEl.classList.add('hidden');
         lobbyEl.classList.remove('hidden');
@@ -386,9 +409,7 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
-        if (!document.getElementById('game-scroll')) {
-            renderGame();
-        }
+        if (!document.getElementById('game-scroll')) { renderGame(); }
 
         if (activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
@@ -412,7 +433,6 @@ function syncLobby(snap) {
                 orderIndex: getPlayerIndex(p.name, orderList)
             }));
 
-            // 1. Find Panda
             const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 return a.orderIndex - b.orderIndex; 
@@ -421,7 +441,6 @@ function syncLobby(snap) {
             const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
             const totalP = orderList.length;
 
-            // 2. Picking Order
             const pickingOrder = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
@@ -429,15 +448,29 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // 3. Pity Dice
+            // --- UPDATED PITY TIE BREAKER LOGIC ---
+            // Requirement: Start with person to right of panda, end with panda.
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
-                const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
-                const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
+                
+                // Get distance going forward (Left/Clockwise)
+                // If Panda is 0, Right is 1, RightRight is 2.
+                let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
+                let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+                
+                // If distance is 0, it means it is the Panda.
+                // We want Panda to be LAST, so we treat 0 as a very high number.
+                if (distA === 0) distA = totalP + 99;
+                if (distB === 0) distB = totalP + 99;
+                
                 return distA - distB;
             });
+            // --------------------------------------
+
             const pityList = pityOrder.slice(0, pityDiceCount);
 
+            // ... [Rest of syncLobby logic remains the same] ...
+            
             // 4. Trade List
             let tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
             tradeList.sort((a, b) => {
@@ -453,8 +486,9 @@ function syncLobby(snap) {
             
             let html = '';
 
+            // ... [Keep HTML generation logic exactly as is] ...
+            
             // --- NEW: INDIVIDUAL SUMMARY ---
-            // Calculate my own stats for this round (even if local data is stale, we can pull from what we just submitted or calculate)
             const myRoundData = activeGame.rounds[activeGame.currentRound];
             const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
             const myRnd = calculateRoundTotal(myRoundData);
