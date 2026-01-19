@@ -40,7 +40,7 @@ let multiplayerConfig = {
     code: null,
     isHost: false,
     hasSubmitted: false,
-    playerOrder: [] // Array of player names in order
+    playerOrder: [] 
 };
 
 const app = document.getElementById('app');
@@ -55,7 +55,8 @@ Object.assign(window, {
     // MP Functions
     openHostModeSelect, finalizeHostGame, joinExistingGame, leaveLobby,
     editMyScore, hostPushNextRound, adjustLobbyCount, openHostSettings,
-    movePlayerOrder, savePlayerOrder, closeHostSettings, exitHostGame
+    movePlayerOrder, savePlayerOrder, closeHostSettings, exitHostGame,
+    submitMultiplayerRound // New function
 });
 
 function applySettings() {
@@ -122,8 +123,7 @@ function renderOnboardingCard(step, container) {
             <div class="flex-1 flex flex-col justify-center">
                 <h2 class="text-4xl font-black mb-8 tracking-tighter">Playing Together</h2>
                 <div class="space-y-6 text-slate-300 font-medium leading-snug text-sm">
-                    <p><strong class="text-white">Syncing:</strong> After calculating your round score, tap the <strong class="text-white">Next Arrow</strong> to submit your score to the lobby.</p>
-                    <p><strong class="text-white">The Host:</strong> The host controls when the group moves to the next round.</p>
+                    <p><strong class="text-white">Syncing:</strong> Calculate your score, then tap <strong class="text-white">SUBMIT</strong> to join the summary page.</p>
                 </div>
             </div>
             <button onclick="finishOnboarding()" class="mt-10 py-4 opacity-40 font-black uppercase text-[10px] tracking-widest text-white">Start Playing</button>`;
@@ -212,7 +212,7 @@ async function finalizeHostGame(mode) {
         status: "waiting", 
         roundNum: 0,
         targetCount: 4,
-        playerOrder: [myName] // Init order
+        playerOrder: [myName] 
     });
 
     await set(ref(db, `games/${newCode}/players/${myName}`), { 
@@ -280,25 +280,9 @@ function adjustLobbyCount(delta) {
 }
 
 // --- Tie Breaking Logic ---
-
-// Get index of player in ordered list
-function getPlayerIndex(name, orderList) {
-    return orderList.indexOf(name);
-}
-
-// Calculate distance moving "Left" (Clockwise)
-function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) {
-    if (totalPlayers === 0) return 0;
-    // (player - panda + N) % N
-    return (playerIndex - pandaIndex + totalPlayers) % totalPlayers;
-}
-
-// Calculate distance moving "Right" (Counter-Clockwise)
-function getDistanceRight(pandaIndex, playerIndex, totalPlayers) {
-    if (totalPlayers === 0) return 0;
-    // (panda - player + N) % N
-    return (pandaIndex - playerIndex + totalPlayers) % totalPlayers;
-}
+function getPlayerIndex(name, orderList) { return orderList.indexOf(name); }
+function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (playerIndex - pandaIndex + totalPlayers) % totalPlayers; }
+function getDistanceRight(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (pandaIndex - playerIndex + totalPlayers) % totalPlayers; }
 
 function syncLobby(snap) {
     const data = snap.val();
@@ -310,16 +294,12 @@ function syncLobby(snap) {
     const playerCount = data.targetCount || 4;
     const pityDiceCount = getPityDiceCount(playerCount);
     
-    // Sync Order List
     multiplayerConfig.playerOrder = data.playerOrder || [];
 
-    // Trigger Host Setup Popup on Round 0 Active
     if (multiplayerConfig.isHost && data.status === "active" && data.roundNum === 0) {
-        // Check if we already showed it to avoid loop, using a temp flag on window or similar, 
-        // but for now, we rely on the host explicitly closing it.
         const existing = document.getElementById('host-settings-overlay');
         if (!existing && !sessionStorage.getItem('setup_shown')) {
-            openHostSettings(true); // Open in 'setup mode'
+            openHostSettings(true); 
             sessionStorage.setItem('setup_shown', 'true');
         }
     }
@@ -368,6 +348,7 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
+        // Auto-sync round number if changed
         if (activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
             multiplayerConfig.hasSubmitted = false;
@@ -379,27 +360,16 @@ function syncLobby(snap) {
             app.classList.add('hidden');
 
             const listContainer = document.getElementById('waiting-list');
-            
-            // --- SUMMARY CALCULATIONS ---
             const orderList = multiplayerConfig.playerOrder;
             
-            // 1. Identify Panda (Highest Yellow, Tie-break: Order List Index)
-            // Filter only submitted players for calculations to avoid skewing with 0s? 
-            // The prompt implies we wait for everyone. But for live updates we calc with what we have.
-            // Using placeholder values of 0 for unsubmitted.
-            
-            // Clone and sanitize players with 0 if not submitted
             const calcPlayers = players.map(p => ({
                 ...p,
                 yellowScore: p.submitted ? (p.yellowScore || 0) : 0,
                 roundScore: p.submitted ? (p.roundScore || 0) : 0,
                 grandTotal: p.grandTotal || 0,
-                // Add index for tie breaking
                 orderIndex: getPlayerIndex(p.name, orderList)
             }));
 
-            // Find Panda
-            // Sort by Yellow Desc, then by Order Index Asc
             const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 return a.orderIndex - b.orderIndex; 
@@ -408,19 +378,15 @@ function syncLobby(snap) {
             const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
             const totalP = orderList.length;
 
-            // Sort: Picking Order (Yellow Desc, Tie: Distance Left Asc)
             const pickingOrder = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
-                // Tie: Closest to Left of Panda
                 const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
                 const distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
                 return distA - distB;
             });
 
-            // Sort: Pity Dice (Round Score Asc, Tie: Distance Right Asc)
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
-                // Tie: Closest to Right of Panda
                 const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
                 const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
                 return distA - distB;
@@ -430,7 +396,6 @@ function syncLobby(snap) {
             const tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
             const grandOrder = [...calcPlayers].sort((a,b) => b.grandTotal - a.grandTotal);
             
-            // --- HTML GENERATION ---
             let html = '';
 
             // SECTION 1: THE PANDA
@@ -498,7 +463,7 @@ function syncLobby(snap) {
             });
             html += `</div></div>`;
 
-            // SECTION 6: WAITING FOR (Bottom)
+            // SECTION 6: WAITING FOR
             const waitingFor = players.filter(p => !p.submitted);
             if(waitingFor.length > 0) {
                  html += `<div class="mt-8 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
@@ -528,7 +493,6 @@ function syncLobby(snap) {
 // --- HOST SETTINGS UI ---
 
 function openHostSettings(isSetupMode = false) {
-    // If not host, exit
     if(!multiplayerConfig.isHost) return;
 
     const existing = document.getElementById('host-settings-overlay');
@@ -538,11 +502,9 @@ function openHostSettings(isSetupMode = false) {
     overlay.id = 'host-settings-overlay';
     overlay.className = 'modal-overlay animate-fadeIn';
     
-    // Fetch latest player order from config or DB
     const order = multiplayerConfig.playerOrder;
     const pCount = order.length;
     
-    // HTML Construction
     overlay.innerHTML = `
     <div class="action-popup w-[90%] max-w-[350px]">
         <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
@@ -587,18 +549,11 @@ function movePlayerOrder(index, direction) {
     const list = [...multiplayerConfig.playerOrder];
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= list.length) return;
-    
-    // Swap
     [list[index], list[targetIndex]] = [list[targetIndex], list[index]];
-    
-    // Optimistic Update & Save
     multiplayerConfig.playerOrder = list;
     savePlayerOrder();
     
-    // Re-render menu
     const existing = document.getElementById('host-settings-overlay'); 
-    // Detect if we are in setup mode based on title or logic, here simple re-open works
-    // Or just re-render list content. Re-opening is easier for this snippet.
     const isSetup = existing.innerHTML.includes('SEATING CHART');
     openHostSettings(isSetup);
 }
@@ -614,7 +569,6 @@ function closeHostSettings() {
 
 function exitHostGame() {
     if(confirm("End game for everyone?")) {
-        // Optional: Set status to 'ended' in DB
         window.location.reload();
     }
 }
@@ -759,17 +713,41 @@ function renderGame() {
     const sageUnlocked = isExpansion && activeGame.currentRound > 0 && isSageAlreadyCompleteBy(activeGame.currentRound - 1);
     const isLastRound = roundNum === 10;
      
-    const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
-    const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
+    // Navigation Action Buttons
+    let leftAction, rightAction;
 
-    const rightAction = isLastRound 
-        ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
-        : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
+    if (multiplayerConfig.active) {
+        // --- MULTIPLAYER NAV ---
+        
+        // Left: Host Gear or Exit
+        if (multiplayerConfig.isHost) {
+            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
+        } else {
+            leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
+        }
+
+        // Right: SUBMIT (Replaces Arrows)
+        rightAction = `<button onclick="submitMultiplayerRound()" class="bg-green-500 text-white font-black text-xs px-5 py-2 rounded-lg shadow-lg hover:bg-green-400 transition-colors uppercase tracking-wider">SUBMIT</button>`;
     
-    // Check if Host to swap Exit button
-    const exitAction = (multiplayerConfig.active && multiplayerConfig.isHost) 
-        ? `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500">⚙️ HOST</button>`
-        : `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
+    } else {
+        // --- LOCAL NAV (Original Arrows) ---
+        const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
+        const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
+        
+        leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
+        
+        // Center Left Arrow
+        const prevArrow = `<button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>`;
+        
+        // Center Right Arrow
+        const nextArrow = isLastRound 
+            ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
+            : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
+            
+        // Combine for center display (logic handled in HTML template below)
+        leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
+        // Note: In local mode we render arrows inside the center div block in the main template
+    }
 
     let reviewSectionHtml = '';
     if (activeGame.currentRound > 0) {
@@ -811,10 +789,43 @@ function renderGame() {
         diceRowsHtml += `<div class="mt-6 pt-6 border-t-4 border-yellow-500/20 animate-fadeIn">${renderDiceRow(sageDiceConfig, roundData)}</div>`;
     }
 
+    // Determine Top Bar Layout
+    let topBarContent;
+    if (multiplayerConfig.active) {
+        // MP Layout: Exit/Gear | Round Info | Submit
+        topBarContent = `
+            ${leftAction}
+            <div class="text-center">
+                <div class="text-xl font-black uppercase">Round ${roundNum}</div>
+                <div id="round-total-display" class="text-5xl font-black">0</div>
+            </div>
+            ${rightAction}
+        `;
+    } else {
+        // Local Layout: Exit | < Round Info >
+        const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
+        const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
+        const nextBtn = isLastRound 
+            ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
+            : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
+        
+        topBarContent = `
+            <button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>
+            <div class="flex items-center gap-6">
+                <button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>
+                <div class="text-center">
+                    <div class="text-xl font-black uppercase">Round ${roundNum}</div>
+                    <div id="round-total-display" class="text-5xl font-black">0</div>
+                </div>
+                ${nextBtn}
+            </div>
+            <div class="w-10"></div>
+        `;
+    }
+
     app.innerHTML = `<div class="scroll-area" id="game-scroll">
         <div class="sticky top-0 bg-inherit backdrop-blur-md z-50 p-5 border-b border-[var(--border-ui)] flex justify-between items-center">
-            ${exitAction}
-            <div class="flex items-center gap-6"><button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button><div class="text-center"><div class="text-xl font-black uppercase">Round ${roundNum}</div><div id="round-total-display" class="text-5xl font-black">0</div></div>${rightAction}</div><div class="w-10"></div>
+            ${topBarContent}
         </div>
         <div class="p-4 pb-8">
             ${reviewSectionHtml}
@@ -882,28 +893,38 @@ function updateKeypadTheme(bgColor, textColor) {
     });
 }
 
+// --- SUBMISSION LOGIC ---
+
+async function submitMultiplayerRound() {
+    if(!multiplayerConfig.active) return;
+    if(!confirm("Submit score for this round?")) return;
+
+    const currentRData = activeGame.rounds[activeGame.currentRound];
+    
+    // Calculate Synced Variables
+    const rTotal = calculateRoundTotal(currentRData);
+    const gTotal = calculateGrandTotal(activeGame);
+    const yTotal = (currentRData.yellow || []).reduce((a, b) => a + b, 0);
+    const clrUsed = (currentRData.clear || []).length > 0;
+    
+    // Set Local State to Waiting
+    multiplayerConfig.hasSubmitted = true;
+    
+    // Push to DB
+    await update(ref(db, `games/${multiplayerConfig.code}/players/${myName}`), {
+        submitted: true,
+        roundScore: rTotal,
+        grandTotal: gTotal,
+        yellowScore: yTotal,
+        clearUsed: clrUsed
+    });
+    
+    // UI updates via syncLobby automatically
+}
+
 async function changeRound(s) { 
-    if (multiplayerConfig.active && s === 1) {
-        // --- MULTIPLAYER SUBMIT LOGIC ---
-        const currentRData = activeGame.rounds[activeGame.currentRound];
-        
-        // Calculate Synced Variables
-        const rTotal = calculateRoundTotal(currentRData);
-        const gTotal = calculateGrandTotal(activeGame);
-        const yTotal = (currentRData.yellow || []).reduce((a, b) => a + b, 0);
-        const clrUsed = (currentRData.clear || []).length > 0;
-        
-        multiplayerConfig.hasSubmitted = true;
-        
-        await update(ref(db, `games/${multiplayerConfig.code}/players/${myName}`), {
-            submitted: true,
-            roundScore: rTotal,
-            grandTotal: gTotal,
-            yellowScore: yTotal,
-            clearUsed: clrUsed
-        });
-        
-    } else {
+    // LOCAL LOGIC ONLY
+    if (!multiplayerConfig.active) {
         const n = activeGame.currentRound + s; 
         if (n < 0 || n >= 10) return;
         setActiveInput('yellow'); 
