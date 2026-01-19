@@ -32,7 +32,7 @@ let settings = JSON.parse(localStorage.getItem('panda_settings')) || { theme: 'd
 let activeGame = null;
 let keypadValue = '';
 let activeInputField = null;
-let myName = localStorage.getItem('panda_name') || "";
+let myName = localStorage.getItem('panda_name') || "Panda";
 
 // --- Multiplayer State ---
 let multiplayerConfig = {
@@ -44,6 +44,11 @@ let multiplayerConfig = {
 };
 
 const app = document.getElementById('app');
+
+// --- Helper: Safe Name for Firebase ---
+function getSafeName() {
+    return myName.replace(/[.#$/[\]]/g, '');
+}
 
 // --- Expose Functions ---
 Object.assign(window, {
@@ -139,8 +144,8 @@ function finishOnboarding() {
 }
 
 function updatePlayerName(val) {
-    myName = val;
-    localStorage.setItem('panda_name', val);
+    myName = val.replace(/[.#$/[\]]/g, ''); // Validate locally
+    localStorage.setItem('panda_name', myName);
 }
 
 function showHome() {
@@ -226,18 +231,20 @@ async function finalizeHostGame(mode) {
     activeGame.isHost = true;
     saveGame();
     
+    const safeName = getSafeName();
+
     await set(ref(db, `games/${newCode}`), { 
-        host: myName, 
+        host: safeName, 
         mode: mode,
         status: "waiting", 
         roundNum: 0,
         targetCount: 4,
-        playerOrder: [myName],
+        playerOrder: [safeName],
         showGrandTotal: true 
     });
 
-    await set(ref(db, `games/${newCode}/players/${myName}`), { 
-        name: myName, 
+    await set(ref(db, `games/${newCode}/players/${safeName}`), { 
+        name: safeName, 
         submitted: false, 
         grandTotal: 0,
         roundScore: 0,
@@ -266,11 +273,12 @@ async function joinExistingGame() {
     activeGame.isHost = false;
     saveGame();
 
-    const pRef = ref(db, `games/${code}/players/${myName}`);
+    const safeName = getSafeName();
+    const pRef = ref(db, `games/${code}/players/${safeName}`);
     const snap = await get(pRef);
     if (!snap.exists()) {
         await set(pRef, { 
-            name: myName, 
+            name: safeName, 
             submitted: false, 
             grandTotal: 0,
             roundScore: 0,
@@ -280,8 +288,8 @@ async function joinExistingGame() {
         
         const gameData = gSnap.val();
         let currentOrder = gameData.playerOrder || [];
-        if (!currentOrder.includes(myName)) {
-            currentOrder.push(myName);
+        if (!currentOrder.includes(safeName)) {
+            currentOrder.push(safeName);
             await update(ref(db, `games/${code}`), { playerOrder: currentOrder });
         }
     }
@@ -329,6 +337,7 @@ function syncLobby(snap) {
     
     multiplayerConfig.playerOrder = data.playerOrder || [];
 
+    // Host Setup Trigger
     if (multiplayerConfig.isHost && data.status === "active" && data.roundNum === 0) {
         const existing = document.getElementById('host-settings-overlay');
         if (!existing && !sessionStorage.getItem('setup_shown')) {
@@ -381,6 +390,7 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
+        // Ensure game is rendered locally if it hasn't been yet
         if (!document.getElementById('game-scroll')) {
             renderGame();
         }
@@ -395,13 +405,15 @@ function syncLobby(snap) {
         if (multiplayerConfig.hasSubmitted) {
             waitingEl.classList.remove('hidden');
             app.classList.add('hidden');
-            
-            // --- FIX FOR SCROLLING ---
-            // Ensure the list parent has the right classes to scroll
+
             const listContainer = document.getElementById('waiting-list');
+            
+            // --- SCROLL FIX START ---
             if (listContainer && listContainer.parentElement) {
-                listContainer.parentElement.classList.add('flex-1', 'overflow-y-auto', 'min-h-0');
+                // Ensure parent has flex-1, overflow-y-auto and min-h-0 to allow internal scrolling
+                listContainer.parentElement.className = "flex-1 overflow-y-auto min-h-0";
             }
+            // --- SCROLL FIX END ---
 
             const orderList = multiplayerConfig.playerOrder;
             
@@ -460,6 +472,7 @@ function syncLobby(snap) {
             
             let html = '';
 
+            // --- INDIVIDUAL SUMMARY ---
             const myRoundData = activeGame.rounds[activeGame.currentRound];
             const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
             const myRnd = calculateRoundTotal(myRoundData);
@@ -568,6 +581,7 @@ function syncLobby(snap) {
         } else {
             waitingEl.classList.add('hidden');
             app.classList.remove('hidden');
+            // KICK-OUT FIX: Do not refresh calculator UI here if user is still playing
         }
     }
 }
@@ -838,7 +852,7 @@ function renderGame() {
         
         // Left: Host Gear or Exit
         if (multiplayerConfig.isHost) {
-            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
+            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">HOST<span class="text-base">⚙️</span></button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
@@ -1025,8 +1039,10 @@ async function submitMultiplayerRound() {
     // Set Local State to Waiting
     multiplayerConfig.hasSubmitted = true;
     
+    const safeName = getSafeName();
+
     // Push to DB
-    await update(ref(db, `games/${multiplayerConfig.code}/players/${myName}`), {
+    await update(ref(db, `games/${multiplayerConfig.code}/players/${safeName}`), {
         submitted: true,
         roundScore: rTotal,
         grandTotal: gTotal,
