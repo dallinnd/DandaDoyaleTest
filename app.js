@@ -39,12 +39,13 @@ let multiplayerConfig = {
     active: false,
     code: null,
     isHost: false,
-    hasSubmitted: false
+    hasSubmitted: false,
+    playerOrder: [] // Array of player names in order
 };
 
 const app = document.getElementById('app');
 
-// --- Expose Functions to Window ---
+// --- Expose Functions ---
 Object.assign(window, {
     checkOnboarding, showOnboarding, finishOnboarding, showHome,
     openGameActions, resumeGame, confirmDelete, openNewGameModal, initGame,
@@ -53,7 +54,8 @@ Object.assign(window, {
     kpToggleNeg, kpEnter, removeVal, toggleMenu, setTheme, clearHistory,
     // MP Functions
     openHostModeSelect, finalizeHostGame, joinExistingGame, leaveLobby,
-    editMyScore, hostPushNextRound, adjustLobbyCount
+    editMyScore, hostPushNextRound, adjustLobbyCount, openHostSettings,
+    movePlayerOrder, savePlayerOrder, closeHostSettings, exitHostGame
 });
 
 function applySettings() {
@@ -209,7 +211,8 @@ async function finalizeHostGame(mode) {
         mode: mode,
         status: "waiting", 
         roundNum: 0,
-        targetCount: 4 // Default
+        targetCount: 4,
+        playerOrder: [myName] // Init order
     });
 
     await set(ref(db, `games/${newCode}/players/${myName}`), { 
@@ -248,16 +251,23 @@ async function joinExistingGame() {
             yellowScore: 0,
             clearUsed: false
         });
+        
+        // Add to Order List
+        const gameData = gSnap.val();
+        let currentOrder = gameData.playerOrder || [];
+        if (!currentOrder.includes(myName)) {
+            currentOrder.push(myName);
+            await update(ref(db, `games/${code}`), { playerOrder: currentOrder });
+        }
     }
     onValue(ref(db, `games/${code}`), syncLobby);
 }
 
-// Logic to determine Pity Dice count
 function getPityDiceCount(playerCount) {
     if (playerCount <= 3) return 1;
     if (playerCount <= 6) return 2;
     if (playerCount <= 9) return 3;
-    return 4; // 10+
+    return 4;
 }
 
 function adjustLobbyCount(delta) {
@@ -269,6 +279,27 @@ function adjustLobbyCount(delta) {
     });
 }
 
+// --- Tie Breaking Logic ---
+
+// Get index of player in ordered list
+function getPlayerIndex(name, orderList) {
+    return orderList.indexOf(name);
+}
+
+// Calculate distance moving "Left" (Clockwise)
+function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) {
+    if (totalPlayers === 0) return 0;
+    // (player - panda + N) % N
+    return (playerIndex - pandaIndex + totalPlayers) % totalPlayers;
+}
+
+// Calculate distance moving "Right" (Counter-Clockwise)
+function getDistanceRight(pandaIndex, playerIndex, totalPlayers) {
+    if (totalPlayers === 0) return 0;
+    // (panda - player + N) % N
+    return (pandaIndex - playerIndex + totalPlayers) % totalPlayers;
+}
+
 function syncLobby(snap) {
     const data = snap.val();
     if (!data) return;
@@ -278,6 +309,20 @@ function syncLobby(snap) {
     const players = Object.values(data.players || {});
     const playerCount = data.targetCount || 4;
     const pityDiceCount = getPityDiceCount(playerCount);
+    
+    // Sync Order List
+    multiplayerConfig.playerOrder = data.playerOrder || [];
+
+    // Trigger Host Setup Popup on Round 0 Active
+    if (multiplayerConfig.isHost && data.status === "active" && data.roundNum === 0) {
+        // Check if we already showed it to avoid loop, using a temp flag on window or similar, 
+        // but for now, we rely on the host explicitly closing it.
+        const existing = document.getElementById('host-settings-overlay');
+        if (!existing && !sessionStorage.getItem('setup_shown')) {
+            openHostSettings(true); // Open in 'setup mode'
+            sessionStorage.setItem('setup_shown', 'true');
+        }
+    }
 
     if (data.status === "waiting") {
         app.classList.add('hidden');
@@ -286,7 +331,6 @@ function syncLobby(snap) {
         
         document.getElementById('lobby-code-display').innerText = `CODE: ${multiplayerConfig.code}`;
         
-        // Host Controls for Player Count
         let controlsHtml = '';
         if (multiplayerConfig.isHost) {
             controlsHtml = `
@@ -336,74 +380,114 @@ function syncLobby(snap) {
 
             const listContainer = document.getElementById('waiting-list');
             
-            // --- SUMMARY PAGE SECTIONS ---
+            // --- SUMMARY CALCULATIONS ---
+            const orderList = multiplayerConfig.playerOrder;
             
-            // 1. Calculations
-            // Sort copies to avoid mutating original list
-            const sortedByYellow = [...players].sort((a,b) => (b.yellowScore || 0) - (a.yellowScore || 0));
-            const sortedByRound = [...players].sort((a,b) => (a.roundScore || 0) - (b.roundScore || 0)); // Ascending for Pity
-            const sortedByGrand = [...players].sort((a,b) => (b.grandTotal || 0) - (a.grandTotal || 0));
+            // 1. Identify Panda (Highest Yellow, Tie-break: Order List Index)
+            // Filter only submitted players for calculations to avoid skewing with 0s? 
+            // The prompt implies we wait for everyone. But for live updates we calc with what we have.
+            // Using placeholder values of 0 for unsubmitted.
             
-            const pandaPlayer = sortedByYellow[0];
-            const pityList = sortedByRound.slice(0, pityDiceCount);
-            const tradeList = players.filter(p => p.clearUsed);
+            // Clone and sanitize players with 0 if not submitted
+            const calcPlayers = players.map(p => ({
+                ...p,
+                yellowScore: p.submitted ? (p.yellowScore || 0) : 0,
+                roundScore: p.submitted ? (p.roundScore || 0) : 0,
+                grandTotal: p.grandTotal || 0,
+                // Add index for tie breaking
+                orderIndex: getPlayerIndex(p.name, orderList)
+            }));
+
+            // Find Panda
+            // Sort by Yellow Desc, then by Order Index Asc
+            const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
+                if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
+                return a.orderIndex - b.orderIndex; 
+            });
+            const pandaPlayer = sortedByYellowRaw[0];
+            const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
+            const totalP = orderList.length;
+
+            // Sort: Picking Order (Yellow Desc, Tie: Distance Left Asc)
+            const pickingOrder = [...calcPlayers].sort((a,b) => {
+                if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
+                // Tie: Closest to Left of Panda
+                const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
+                const distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+                return distA - distB;
+            });
+
+            // Sort: Pity Dice (Round Score Asc, Tie: Distance Right Asc)
+            const pityOrder = [...calcPlayers].sort((a,b) => {
+                if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
+                // Tie: Closest to Right of Panda
+                const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
+                const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
+                return distA - distB;
+            });
+
+            const pityList = pityOrder.slice(0, pityDiceCount);
+            const tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
+            const grandOrder = [...calcPlayers].sort((a,b) => b.grandTotal - a.grandTotal);
             
-            // 2. HTML Generation
+            // --- HTML GENERATION ---
             let html = '';
 
-            // SECTION 1: THE PANDA (Highest Yellow)
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA (Highest Yellow)</div>`;
-            if (pandaPlayer) {
+            // SECTION 1: THE PANDA
+            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
+            if (pandaPlayer && pandaPlayer.submitted) {
                 html += `<div class="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex justify-between items-center">
                     <span class="text-xl font-black text-yellow-400">${pandaPlayer.name}</span>
-                    <span class="text-2xl font-black text-white">${pandaPlayer.yellowScore || 0}</span>
+                    <span class="text-2xl font-black text-white">${pandaPlayer.yellowScore}</span>
                 </div>`;
-            } else { html += `<div class="opacity-30 italic pl-2 text-xs">Waiting...</div>`; }
+            } else { html += `<div class="opacity-30 italic pl-2 text-xs">Determining...</div>`; }
             html += `</div>`;
 
-            // SECTION 2: PITY DICE (Lowest Round Scores)
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-pink-500 tracking-widest mb-1 pl-2">PITY DICE (${pityDiceCount} Given)</div>`;
+            // SECTION 2: PITY DICE
+            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-pink-500 tracking-widest mb-1 pl-2">PITY DICE (${pityDiceCount})</div>`;
             if (pityList.length > 0) {
                  html += `<div class="grid grid-cols-1 gap-2">`;
                  pityList.forEach(p => {
+                    const val = p.submitted ? p.roundScore : '-';
                     html += `<div class="bg-pink-500/10 border border-pink-500/50 p-3 rounded-xl flex justify-between items-center">
                         <span class="font-bold text-pink-400">${p.name}</span>
-                        <span class="font-mono text-white text-xs">Round Score: ${p.roundScore || 0}</span>
+                        <span class="font-mono text-white text-xs">Round: ${val}</span>
                     </div>`;
                  });
                  html += `</div>`;
             } else { html += `<div class="opacity-30 italic pl-2 text-xs">Waiting...</div>`; }
             html += `</div>`;
 
-            // SECTION 3: TRADES (Clear Used)
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 pl-2">TRADES (Clear Dice Used)</div>`;
+            // SECTION 3: TRADES
+            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 pl-2">TRADES</div>`;
             if (tradeList.length > 0) {
                  html += `<div class="flex flex-wrap gap-2">`;
                  tradeList.forEach(p => {
                     html += `<span class="bg-slate-700/50 border border-slate-600 px-3 py-1 rounded-lg text-xs font-bold text-slate-300">${p.name}</span>`;
                  });
                  html += `</div>`;
-            } else { html += `<div class="opacity-30 italic pl-2 text-xs text-slate-600">No trades this round.</div>`; }
+            } else { html += `<div class="opacity-30 italic pl-2 text-xs text-slate-600">No trades.</div>`; }
             html += `</div>`;
 
-            // SECTION 4: PICKING ORDER (Highest Yellow -> Lowest)
+            // SECTION 4: PICKING ORDER
             html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-1 pl-2">PICKING ORDER</div>`;
             html += `<div class="bg-white/5 rounded-xl border border-white/10 divide-y divide-white/5">`;
-            sortedByYellow.forEach((p, i) => {
+            pickingOrder.forEach((p, i) => {
+                const val = p.submitted ? p.yellowScore : '-';
                 html += `<div class="p-3 flex justify-between items-center">
                     <div class="flex items-center gap-3">
                         <span class="text-[10px] font-black w-4 text-slate-500">${i+1}</span>
                         <span class="font-bold text-sm ${p.name===myName?'text-blue-400':'text-slate-300'}">${p.name}</span>
                     </div>
-                    <span class="text-xs font-mono text-yellow-500/70">${p.yellowScore||0}</span>
+                    <span class="text-xs font-mono text-yellow-500/70">${val}</span>
                 </div>`;
             });
             html += `</div></div>`;
 
-            // SECTION 5: GRAND TOTAL (Leaderboard)
-            html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">GRAND TOTAL LEADERBOARD</div>`;
+            // SECTION 5: GRAND TOTAL
+            html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
             html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
-            sortedByGrand.forEach((p, i) => {
+            grandOrder.forEach((p, i) => {
                 html += `<div class="p-3 flex justify-between items-center">
                     <div class="flex items-center gap-3">
                         <span class="text-[10px] font-black w-4 text-green-700">${i+1}</span>
@@ -413,6 +497,12 @@ function syncLobby(snap) {
                 </div>`;
             });
             html += `</div></div>`;
+
+            // SECTION 6: WAITING FOR (Bottom)
+            const waitingFor = players.filter(p => !p.submitted);
+            if(waitingFor.length > 0) {
+                 html += `<div class="mt-8 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
+            }
 
             listContainer.innerHTML = html;
 
@@ -432,6 +522,100 @@ function syncLobby(snap) {
             app.classList.remove('hidden');
             renderGame(); 
         }
+    }
+}
+
+// --- HOST SETTINGS UI ---
+
+function openHostSettings(isSetupMode = false) {
+    // If not host, exit
+    if(!multiplayerConfig.isHost) return;
+
+    const existing = document.getElementById('host-settings-overlay');
+    if(existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'host-settings-overlay';
+    overlay.className = 'modal-overlay animate-fadeIn';
+    
+    // Fetch latest player order from config or DB
+    const order = multiplayerConfig.playerOrder;
+    const pCount = order.length;
+    
+    // HTML Construction
+    overlay.innerHTML = `
+    <div class="action-popup w-[90%] max-w-[350px]">
+        <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
+        ${isSetupMode ? '<p class="text-xs text-slate-400 mb-6">Arrange players starting from your Left (Clockwise)</p>' : ''}
+        
+        <div class="mb-6">
+            <div class="flex justify-between items-center mb-2">
+                 <span class="text-[10px] font-black uppercase opacity-60">Player Count</span>
+            </div>
+            <div class="flex items-center justify-between bg-black/20 p-2 rounded-xl border border-white/10">
+                <button onclick="adjustLobbyCount(-1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">-</button>
+                <span class="font-black text-xl">${pCount} <span class="text-[10px] opacity-50">PLAYERS</span></span>
+                <button onclick="adjustLobbyCount(1); setTimeout(openHostSettings, 200)" class="w-10 h-10 bg-white text-black font-black rounded-lg">+</button>
+            </div>
+        </div>
+
+        <div class="mb-6">
+             <div class="text-[10px] font-black uppercase opacity-60 mb-2 text-left">Player Order (Drag/Move)</div>
+             <div id="host-order-list" class="flex flex-col gap-2 max-h-[200px] overflow-y-auto">
+                 ${order.map((p, i) => `
+                 <div class="flex items-center gap-2 bg-white/5 p-2 rounded-lg border border-white/10">
+                    <span class="text-[10px] font-bold w-4 text-slate-500">${i+1}</span>
+                    <span class="flex-1 text-left font-bold text-sm truncate">${p}</span>
+                    <div class="flex gap-1">
+                        <button onclick="movePlayerOrder(${i}, -1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▲</button>
+                        <button onclick="movePlayerOrder(${i}, 1)" class="w-8 h-8 bg-black/20 hover:bg-white/20 rounded text-[10px]">▼</button>
+                    </div>
+                 </div>`).join('')}
+             </div>
+        </div>
+        
+        <div class="flex flex-col gap-3">
+            <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
+            ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
+        </div>
+    </div>`;
+    
+    document.body.appendChild(overlay);
+}
+
+function movePlayerOrder(index, direction) {
+    const list = [...multiplayerConfig.playerOrder];
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= list.length) return;
+    
+    // Swap
+    [list[index], list[targetIndex]] = [list[targetIndex], list[index]];
+    
+    // Optimistic Update & Save
+    multiplayerConfig.playerOrder = list;
+    savePlayerOrder();
+    
+    // Re-render menu
+    const existing = document.getElementById('host-settings-overlay'); 
+    // Detect if we are in setup mode based on title or logic, here simple re-open works
+    // Or just re-render list content. Re-opening is easier for this snippet.
+    const isSetup = existing.innerHTML.includes('SEATING CHART');
+    openHostSettings(isSetup);
+}
+
+function savePlayerOrder() {
+    update(ref(db, `games/${multiplayerConfig.code}`), { playerOrder: multiplayerConfig.playerOrder });
+}
+
+function closeHostSettings() {
+    const el = document.getElementById('host-settings-overlay');
+    if(el) el.remove();
+}
+
+function exitHostGame() {
+    if(confirm("End game for everyone?")) {
+        // Optional: Set status to 'ended' in DB
+        window.location.reload();
     }
 }
 
@@ -581,6 +765,11 @@ function renderGame() {
     const rightAction = isLastRound 
         ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
         : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
+    
+    // Check if Host to swap Exit button
+    const exitAction = (multiplayerConfig.active && multiplayerConfig.isHost) 
+        ? `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500">⚙️ HOST</button>`
+        : `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
 
     let reviewSectionHtml = '';
     if (activeGame.currentRound > 0) {
@@ -624,7 +813,7 @@ function renderGame() {
 
     app.innerHTML = `<div class="scroll-area" id="game-scroll">
         <div class="sticky top-0 bg-inherit backdrop-blur-md z-50 p-5 border-b border-[var(--border-ui)] flex justify-between items-center">
-            <button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>
+            ${exitAction}
             <div class="flex items-center gap-6"><button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button><div class="text-center"><div class="text-xl font-black uppercase">Round ${roundNum}</div><div id="round-total-display" class="text-5xl font-black">0</div></div>${rightAction}</div><div class="w-10"></div>
         </div>
         <div class="p-4 pb-8">
