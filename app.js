@@ -1,19 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-// --- Crash Reporter (Prints errors to screen if app fails) ---
-window.onerror = function(message, source, lineno, colno, error) {
-    const app = document.getElementById('app');
-    if (app) {
-        app.innerHTML = `<div style="color:red; padding:20px; font-family:sans-serif;">
-            <h1>⚠️ App Crashed</h1>
-            <p>${message}</p>
-            <p>Line: ${lineno}</p>
-            <button onclick="localStorage.clear(); location.reload()" style="padding:10px; background:#333; color:white; border-radius:10px; margin-top:10px;">RESET APP DATA</button>
-        </div>`;
-    }
-};
-
 const firebaseConfig = {
     apiKey: "AIzaSyConuxhGCtGvJaa6TZ1bkUvlOhhTdyTgZE",
     authDomain: "flip7share.firebaseapp.com",
@@ -57,11 +44,6 @@ let multiplayerConfig = {
 };
 
 const app = document.getElementById('app');
-
-// --- Helper: Safe Name ---
-function getSafeName() {
-    return (myName || "Player").replace(/[.#$/[\]]/g, '');
-}
 
 // --- Expose Functions ---
 Object.assign(window, {
@@ -156,20 +138,18 @@ function finishOnboarding() {
     showHome();
 }
 
+// --- NEW FUNCTION: Update Player Name Live ---
 function updatePlayerName(val) {
-    myName = val.replace(/[.#$/[\]]/g, ''); 
-    localStorage.setItem('panda_name', myName);
+    myName = val;
+    localStorage.setItem('panda_name', val);
 }
 
 function showHome() {
     activeInputField = null; 
+    document.getElementById('lobby-screen').classList.add('hidden');
+    document.getElementById('waiting-screen').classList.add('hidden');
     
-    // Safety check for DOM elements
-    const lobbyEl = document.getElementById('lobby-screen');
-    const waitingEl = document.getElementById('waiting-screen');
-    if(lobbyEl) lobbyEl.classList.add('hidden');
-    if(waitingEl) waitingEl.classList.add('hidden');
-    
+    // Set default name if missing but don't prompt
     if (!myName) {
         myName = "Panda";
         localStorage.setItem('panda_name', myName);
@@ -248,20 +228,18 @@ async function finalizeHostGame(mode) {
     activeGame.isHost = true;
     saveGame();
     
-    const safeName = getSafeName();
-
     await set(ref(db, `games/${newCode}`), { 
-        host: safeName, 
+        host: myName, 
         mode: mode,
         status: "waiting", 
         roundNum: 0,
         targetCount: 4,
-        playerOrder: [safeName],
-        showGrandTotal: true 
+        playerOrder: [myName],
+        showGrandTotal: true // Default to Competative
     });
 
-    await set(ref(db, `games/${newCode}/players/${safeName}`), { 
-        name: safeName, 
+    await set(ref(db, `games/${newCode}/players/${myName}`), { 
+        name: myName, 
         submitted: false, 
         grandTotal: 0,
         roundScore: 0,
@@ -290,12 +268,11 @@ async function joinExistingGame() {
     activeGame.isHost = false;
     saveGame();
 
-    const safeName = getSafeName();
-    const pRef = ref(db, `games/${code}/players/${safeName}`);
+    const pRef = ref(db, `games/${code}/players/${myName}`);
     const snap = await get(pRef);
     if (!snap.exists()) {
         await set(pRef, { 
-            name: safeName, 
+            name: myName, 
             submitted: false, 
             grandTotal: 0,
             roundScore: 0,
@@ -303,10 +280,11 @@ async function joinExistingGame() {
             clearUsed: false
         });
         
+        // Add to Order List
         const gameData = gSnap.val();
         let currentOrder = gameData.playerOrder || [];
-        if (!currentOrder.includes(safeName)) {
-            currentOrder.push(safeName);
+        if (!currentOrder.includes(myName)) {
+            currentOrder.push(myName);
             await update(ref(db, `games/${code}`), { playerOrder: currentOrder });
         }
     }
@@ -334,14 +312,13 @@ function toggleScoreVisibility() {
     get(ref(db, `games/${multiplayerConfig.code}/showGrandTotal`)).then((snap) => {
         const current = snap.val();
         update(ref(db, `games/${multiplayerConfig.code}`), { showGrandTotal: !current });
+        // Refresh UI
         setTimeout(() => openHostSettings(false), 200);
     });
 }
 
-function getPlayerIndex(name, orderList) { 
-    if(!orderList) return 0;
-    return orderList.indexOf(name); 
-}
+// --- Tie Breaking Logic ---
+function getPlayerIndex(name, orderList) { return orderList.indexOf(name); }
 function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (playerIndex - pandaIndex + totalPlayers) % totalPlayers; }
 function getDistanceRight(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (pandaIndex - playerIndex + totalPlayers) % totalPlayers; }
 
@@ -352,8 +329,7 @@ function syncLobby(snap) {
     const lobbyEl = document.getElementById('lobby-screen');
     const waitingEl = document.getElementById('waiting-screen');
     const players = Object.values(data.players || {});
-    // Use targetCount for lobby logic
-    const playerCount = data.targetCount || 4; 
+    const playerCount = data.targetCount || 4;
     const pityDiceCount = getPityDiceCount(playerCount);
     
     multiplayerConfig.playerOrder = data.playerOrder || [];
@@ -410,12 +386,11 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
-        // Ensure game is rendered locally
         if (!document.getElementById('game-scroll')) {
             renderGame();
         }
 
-        if (activeGame && activeGame.currentRound !== data.roundNum) {
+        if (activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
             multiplayerConfig.hasSubmitted = false;
             saveGame();
@@ -426,12 +401,7 @@ function syncLobby(snap) {
             waitingEl.classList.remove('hidden');
             app.classList.add('hidden');
 
-            // --- REBUILD SUMMARY PAGE ---
             const listContainer = document.getElementById('waiting-list');
-            if (listContainer && listContainer.parentElement) {
-                listContainer.parentElement.className = "flex-1 overflow-y-auto min-h-0";
-            }
-
             const orderList = multiplayerConfig.playerOrder;
             
             const calcPlayers = players.map(p => ({
@@ -462,14 +432,8 @@ function syncLobby(snap) {
             // 3. Pity Dice
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
-                
-                let distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
-                let distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
-                
-                // Panda (Distance 0) goes last in tie
-                if (distA === 0) distA = 9999;
-                if (distB === 0) distB = 9999;
-                
+                const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
+                const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
                 return distA - distB;
             });
             const pityList = pityOrder.slice(0, pityDiceCount);
@@ -479,7 +443,7 @@ function syncLobby(snap) {
             tradeList.sort((a, b) => {
                 let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
                 let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
-                if (distA === 0) distA = 9999; // Panda last
+                if (distA === 0) distA = 9999;
                 if (distB === 0) distB = 9999;
                 return distA - distB;
             });
@@ -489,13 +453,11 @@ function syncLobby(snap) {
             
             let html = '';
 
-            // --- INDIVIDUAL SUMMARY ---
-            let myYel = 0, myRnd = 0;
-            if(activeGame && activeGame.rounds && activeGame.rounds[activeGame.currentRound]){
-                const myRoundData = activeGame.rounds[activeGame.currentRound];
-                myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
-                myRnd = calculateRoundTotal(myRoundData);
-            }
+            // --- NEW: INDIVIDUAL SUMMARY ---
+            // Calculate my own stats for this round (even if local data is stale, we can pull from what we just submitted or calculate)
+            const myRoundData = activeGame.rounds[activeGame.currentRound];
+            const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
+            const myRnd = calculateRoundTotal(myRoundData);
 
             html += `
             <div class="mb-6 animate-fadeIn">
@@ -561,8 +523,8 @@ function syncLobby(snap) {
             });
             html += `</div></div>`;
 
-            // SECTION 5: GRAND TOTAL
-            if (data.showGrandTotal !== false) { 
+            // SECTION 5: GRAND TOTAL (CONDITIONAL)
+            if (data.showGrandTotal !== false) { // Default true
                 html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
                 html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
                 grandOrder.forEach((p, i) => {
@@ -582,27 +544,21 @@ function syncLobby(snap) {
             // SECTION 6: WAITING FOR
             const waitingFor = players.filter(p => !p.submitted);
             if(waitingFor.length > 0) {
-                 html += `<div class="mt-8 pb-10 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
+                 html += `<div class="mt-8 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
             }
 
-            const btnHtml = (multiplayerConfig.isHost) 
-                ? `<button onclick="hostPushNextRound()" id="host-next-btn" class="w-full bg-yellow-500 text-black py-4 rounded-2xl font-black text-xl shadow-lg mb-3">START NEXT ROUND</button>`
-                : `<p id="waiting-msg" class="text-center text-slate-500 text-xs font-black uppercase tracking-widest mb-2 animate-pulse">Waiting for other players...</p>`;
+            listContainer.innerHTML = html;
 
-            waitingEl.innerHTML = `
-                <div class="flex justify-between items-center mb-6 flex-none">
-                    <h2 class="text-2xl font-black text-white tracking-tighter">ROUND SUMMARY</h2>
-                    <button onclick="editMyScore()" class="px-4 py-2 bg-slate-800 rounded-lg text-[10px] font-black uppercase text-slate-400">EDIT SCORE</button>
-                </div>
-                
-                <div class="flex-1 overflow-y-auto min-h-0" id="waiting-list-scroll-area">
-                    ${html}
-                </div>
-
-                <div class="mt-4 flex-none">
-                    ${btnHtml}
-                </div>
-            `;
+            const hostBtn = document.getElementById('host-next-btn');
+            const msg = document.getElementById('waiting-msg');
+            
+            if (multiplayerConfig.isHost) {
+                hostBtn.classList.remove('hidden');
+                msg.classList.add('hidden');
+            } else {
+                hostBtn.classList.add('hidden');
+                msg.classList.remove('hidden');
+            }
 
         } else {
             waitingEl.classList.add('hidden');
@@ -623,12 +579,13 @@ function openHostSettings(isSetupMode = false) {
     overlay.id = 'host-settings-overlay';
     overlay.className = 'modal-overlay animate-fadeIn';
     
+    // Fetch fresh state to ensure toggles are accurate
     get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
         const data = snap.val();
         const order = data.playerOrder || [];
-        const pCount = data.targetCount || 4;
+        const pCount = order.length;
         const gameCode = multiplayerConfig.code; 
-        const showGT = data.showGrandTotal !== false; 
+        const showGT = data.showGrandTotal !== false; // Default true
 
         overlay.innerHTML = `
         <div class="action-popup w-[90%] max-w-[350px]">
@@ -764,15 +721,20 @@ function openGameActions(index) {
 function resumeGame(i) {
     activeGame = games[i];
     
+    // ** CRITICAL FIX: Check if this is a MultiPlayer Game **
     if (activeGame.mpCode) {
         multiplayerConfig.active = true;
         multiplayerConfig.code = activeGame.mpCode;
         multiplayerConfig.isHost = activeGame.isHost || false;
         
+        // Re-attach Firebase Listener
         onValue(ref(db, `games/${activeGame.mpCode}`), syncLobby);
         
         const m = document.getElementById('action-modal');
         if (m) m.remove();
+        
+        // syncLobby will handle the render, but we force render if active
+        // Logic handled in syncLobby now
     } else {
         multiplayerConfig.active = false; 
         const m = document.getElementById('action-modal');
@@ -996,6 +958,43 @@ function renderGame() {
     updateAllDisplays();
 }
 
+function updateAllDisplays() {
+    const round = activeGame.rounds[activeGame.currentRound];
+    if (!round) return;
+    const isExpansion = activeGame.mode === 'expansion';
+    if (isExpansion) {
+        const sage = calculateSageProgress(round);
+        const sText = document.getElementById('sage-status-text');
+        const sFill = document.getElementById('sage-progress-fill');
+        if (sText) {
+            sText.textContent = `${sage.count}/6 Used${sage.count >= 6 ? ' - SAGE! ✨' : ''}`;
+            sText.className = `text-xs font-black uppercase ${sage.count >= 6 ? 'text-yellow-500' : 'text-green-500'}`;
+        }
+        if (sFill) {
+            sFill.style.width = `${sage.percentage}%`;
+            sFill.className = `h-full transition-all duration-500 ${sage.count >= 6 ? 'bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`;
+        }
+    }
+    const wildBonuses = {};
+    (round.wild || []).forEach((w, i) => {
+        wildBonuses[w.target] = (wildBonuses[w.target] || 0) + (w.value || 0);
+        const displays = document.querySelectorAll('.wild-val-display');
+        if (displays[i]) displays[i].textContent = w.value || 0;
+    });
+    [...diceConfig, sageDiceConfig].forEach(d => {
+        const sumEl = document.getElementById(`${d.id}-sum`);
+        if (!sumEl) return;
+        const vals = round[d.id] || [];
+        let base = (vals.reduce((a, b) => a + b, 0)) + (wildBonuses[d.id] || 0);
+        let score = (d.id==='purple'||(d.id==='blue'&&round.blueHasSparkle)) ? base*2 : (d.id==='red' ? base*vals.length : base);
+        sumEl.textContent = score;
+        const valBox = document.getElementById(`${d.id}-values`);
+        if (valBox) valBox.innerHTML = vals.map((v, i) => `<span class="inline-flex items-center bg-black/10 px-5 py-3 rounded-2xl text-xl font-black border border-black/5">${v} <button onclick="event.stopPropagation(); removeVal('${d.id}', ${i})" class="ml-4 w-8 h-8 flex items-center justify-center bg-black/20 rounded-full text-lg opacity-60 active:bg-red-500 active:text-white">×</button></span>`).join('');
+    });
+    document.getElementById('round-total-display').textContent = calculateRoundTotal(round);
+    document.getElementById('grand-total-box').textContent = calculateGrandTotal(activeGame);
+}
+
 // --- Interaction Helpers ---
 function updateKeypadTheme(bgColor, textColor) {
     const keys = document.querySelectorAll('.kp-btn:not(#add-btn)');
@@ -1027,10 +1026,8 @@ async function submitMultiplayerRound() {
     // Set Local State to Waiting
     multiplayerConfig.hasSubmitted = true;
     
-    const safeName = getSafeName();
-
     // Push to DB
-    await update(ref(db, `games/${multiplayerConfig.code}/players/${safeName}`), {
+    await update(ref(db, `games/${multiplayerConfig.code}/players/${myName}`), {
         submitted: true,
         roundScore: rTotal,
         grandTotal: gTotal,
