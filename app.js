@@ -1,6 +1,19 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+// --- Crash Reporter (Prints errors to screen if app fails) ---
+window.onerror = function(message, source, lineno, colno, error) {
+    const app = document.getElementById('app');
+    if (app) {
+        app.innerHTML = `<div style="color:red; padding:20px; font-family:sans-serif;">
+            <h1>⚠️ App Crashed</h1>
+            <p>${message}</p>
+            <p>Line: ${lineno}</p>
+            <button onclick="localStorage.clear(); location.reload()" style="padding:10px; background:#333; color:white; border-radius:10px; margin-top:10px;">RESET APP DATA</button>
+        </div>`;
+    }
+};
+
 const firebaseConfig = {
     apiKey: "AIzaSyConuxhGCtGvJaa6TZ1bkUvlOhhTdyTgZE",
     authDomain: "flip7share.firebaseapp.com",
@@ -32,7 +45,7 @@ let settings = JSON.parse(localStorage.getItem('panda_settings')) || { theme: 'd
 let activeGame = null;
 let keypadValue = '';
 let activeInputField = null;
-let myName = localStorage.getItem('panda_name') || "Panda";
+let myName = localStorage.getItem('panda_name') || "";
 
 // --- Multiplayer State ---
 let multiplayerConfig = {
@@ -47,7 +60,7 @@ const app = document.getElementById('app');
 
 // --- Helper: Safe Name ---
 function getSafeName() {
-    return myName.replace(/[.#$/[\]]/g, '');
+    return (myName || "Player").replace(/[.#$/[\]]/g, '');
 }
 
 // --- Expose Functions ---
@@ -144,14 +157,18 @@ function finishOnboarding() {
 }
 
 function updatePlayerName(val) {
-    myName = val.replace(/[.#$/[\]]/g, ''); // Validate locally
+    myName = val.replace(/[.#$/[\]]/g, ''); 
     localStorage.setItem('panda_name', myName);
 }
 
 function showHome() {
     activeInputField = null; 
-    document.getElementById('lobby-screen').classList.add('hidden');
-    document.getElementById('waiting-screen').classList.add('hidden');
+    
+    // Safety check for DOM elements
+    const lobbyEl = document.getElementById('lobby-screen');
+    const waitingEl = document.getElementById('waiting-screen');
+    if(lobbyEl) lobbyEl.classList.add('hidden');
+    if(waitingEl) waitingEl.classList.add('hidden');
     
     if (!myName) {
         myName = "Panda";
@@ -321,7 +338,10 @@ function toggleScoreVisibility() {
     });
 }
 
-function getPlayerIndex(name, orderList) { return orderList.indexOf(name); }
+function getPlayerIndex(name, orderList) { 
+    if(!orderList) return 0;
+    return orderList.indexOf(name); 
+}
 function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (playerIndex - pandaIndex + totalPlayers) % totalPlayers; }
 function getDistanceRight(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (pandaIndex - playerIndex + totalPlayers) % totalPlayers; }
 
@@ -332,12 +352,12 @@ function syncLobby(snap) {
     const lobbyEl = document.getElementById('lobby-screen');
     const waitingEl = document.getElementById('waiting-screen');
     const players = Object.values(data.players || {});
-    const playerCount = data.targetCount || 4;
+    // Use targetCount for lobby logic
+    const playerCount = data.targetCount || 4; 
     const pityDiceCount = getPityDiceCount(playerCount);
     
     multiplayerConfig.playerOrder = data.playerOrder || [];
 
-    // Host Setup Trigger
     if (multiplayerConfig.isHost && data.status === "active" && data.roundNum === 0) {
         const existing = document.getElementById('host-settings-overlay');
         if (!existing && !sessionStorage.getItem('setup_shown')) {
@@ -390,12 +410,12 @@ function syncLobby(snap) {
     } else if (data.status === "active") {
         lobbyEl.classList.add('hidden');
         
-        // Ensure game is rendered locally if it hasn't been yet
+        // Ensure game is rendered locally
         if (!document.getElementById('game-scroll')) {
             renderGame();
         }
 
-        if (activeGame.currentRound !== data.roundNum) {
+        if (activeGame && activeGame.currentRound !== data.roundNum) {
             activeGame.currentRound = data.roundNum;
             multiplayerConfig.hasSubmitted = false;
             saveGame();
@@ -406,8 +426,12 @@ function syncLobby(snap) {
             waitingEl.classList.remove('hidden');
             app.classList.add('hidden');
 
-            // --- REBUILD WAITING SCREEN ---
-            // This rebuilds the DOM node to guarantee correct Flex/Scroll classes
+            // --- REBUILD SUMMARY PAGE ---
+            const listContainer = document.getElementById('waiting-list');
+            if (listContainer && listContainer.parentElement) {
+                listContainer.parentElement.className = "flex-1 overflow-y-auto min-h-0";
+            }
+
             const orderList = multiplayerConfig.playerOrder;
             
             const calcPlayers = players.map(p => ({
@@ -435,14 +459,14 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // 3. Pity Dice - FIX: Panda goes last in tie
+            // 3. Pity Dice
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
                 
                 let distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
                 let distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
                 
-                // If a player is the Panda (dist 0), force distance to max to sort last in tie
+                // Panda (Distance 0) goes last in tie
                 if (distA === 0) distA = 9999;
                 if (distB === 0) distB = 9999;
                 
@@ -455,7 +479,7 @@ function syncLobby(snap) {
             tradeList.sort((a, b) => {
                 let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
                 let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
-                if (distA === 0) distA = 9999;
+                if (distA === 0) distA = 9999; // Panda last
                 if (distB === 0) distB = 9999;
                 return distA - distB;
             });
@@ -466,9 +490,12 @@ function syncLobby(snap) {
             let html = '';
 
             // --- INDIVIDUAL SUMMARY ---
-            const myRoundData = activeGame.rounds[activeGame.currentRound];
-            const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
-            const myRnd = calculateRoundTotal(myRoundData);
+            let myYel = 0, myRnd = 0;
+            if(activeGame && activeGame.rounds && activeGame.rounds[activeGame.currentRound]){
+                const myRoundData = activeGame.rounds[activeGame.currentRound];
+                myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
+                myRnd = calculateRoundTotal(myRoundData);
+            }
 
             html += `
             <div class="mb-6 animate-fadeIn">
@@ -558,8 +585,6 @@ function syncLobby(snap) {
                  html += `<div class="mt-8 pb-10 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
             }
 
-            // --- RE-INJECT ENTIRE WAITING SCREEN HTML ---
-            // This is the key fix for scrolling. We rebuild the container structure every update.
             const btnHtml = (multiplayerConfig.isHost) 
                 ? `<button onclick="hostPushNextRound()" id="host-next-btn" class="w-full bg-yellow-500 text-black py-4 rounded-2xl font-black text-xl shadow-lg mb-3">START NEXT ROUND</button>`
                 : `<p id="waiting-msg" class="text-center text-slate-500 text-xs font-black uppercase tracking-widest mb-2 animate-pulse">Waiting for other players...</p>`;
@@ -601,7 +626,6 @@ function openHostSettings(isSetupMode = false) {
     get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
         const data = snap.val();
         const order = data.playerOrder || [];
-        // FIX: Display Target Count, not joined count
         const pCount = data.targetCount || 4;
         const gameCode = multiplayerConfig.code; 
         const showGT = data.showGrandTotal !== false; 
