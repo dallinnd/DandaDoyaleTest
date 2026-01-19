@@ -320,7 +320,6 @@ function syncLobby(snap) {
     const data = snap.val();
     if (!data) return;
 
-    // --- LIVE SETTINGS REFRESH ---
     if (document.getElementById('host-settings-overlay')) {
         const container = document.getElementById('host-settings-content');
         const isSetup = container && container.innerHTML.includes('SEATING CHART');
@@ -400,6 +399,8 @@ function syncLobby(snap) {
 
         if (multiplayerConfig.hasSubmitted) {
             waitingEl.classList.remove('hidden');
+            // FIX: Ensure the waiting screen scrolls if content overflows
+            waitingEl.classList.add('overflow-y-auto', 'pb-10'); 
             app.classList.add('hidden');
 
             const listContainer = document.getElementById('waiting-list');
@@ -430,13 +431,19 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // 3. Pity Dice - Modified Logic (Panda Last)
+            // 3. Pity Dice - Updated for "Closest to Right"
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
-                let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
-                let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
-                if (distA === 0) distA = totalP + 99;
-                if (distB === 0) distB = totalP + 99;
+                
+                // Use getDistanceRight to find closest person counter-clockwise
+                let distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
+                let distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
+                
+                // If distance is 0, it means it is the Panda.
+                // We want Panda to be LAST (highest distance value)
+                if (distA === 0) distA = totalP + 999;
+                if (distB === 0) distB = totalP + 999;
+                
                 return distA - distB;
             });
             const pityList = pityOrder.slice(0, pityDiceCount);
@@ -847,7 +854,19 @@ function renderGame() {
         const nextBtn = isLastRound 
             ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
             : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
-        leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
+        
+        topBarContent = `
+            <button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>
+            <div class="flex items-center gap-6">
+                <button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>
+                <div class="text-center">
+                    <div class="text-xl font-black uppercase">Round ${roundNum}</div>
+                    <div id="round-total-display" class="text-5xl font-black">0</div>
+                </div>
+                ${nextBtn}
+            </div>
+            <div class="w-10"></div>
+        `;
     }
 
     let reviewSectionHtml = '';
@@ -888,37 +907,6 @@ function renderGame() {
      
     if (sageUnlocked && roundNum > 1) {
         diceRowsHtml += `<div class="mt-6 pt-6 border-t-4 border-yellow-500/20 animate-fadeIn">${renderDiceRow(sageDiceConfig, roundData)}</div>`;
-    }
-
-    let topBarContent;
-    if (multiplayerConfig.active) {
-        topBarContent = `
-            ${leftAction}
-            <div class="text-center">
-                <div class="text-xl font-black uppercase">Round ${roundNum}</div>
-                <div id="round-total-display" class="text-5xl font-black">0</div>
-            </div>
-            ${rightAction}
-        `;
-    } else {
-        const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
-        const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
-        const nextBtn = isLastRound 
-            ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
-            : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
-        
-        topBarContent = `
-            <button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>
-            <div class="flex items-center gap-6">
-                <button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>
-                <div class="text-center">
-                    <div class="text-xl font-black uppercase">Round ${roundNum}</div>
-                    <div id="round-total-display" class="text-5xl font-black">0</div>
-                </div>
-                ${nextBtn}
-            </div>
-            <div class="w-10"></div>
-        `;
     }
 
     app.innerHTML = `<div class="scroll-area" id="game-scroll">
