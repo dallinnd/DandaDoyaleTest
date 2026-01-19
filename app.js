@@ -138,7 +138,6 @@ function finishOnboarding() {
     showHome();
 }
 
-// --- NEW FUNCTION: Update Player Name Live ---
 function updatePlayerName(val) {
     myName = val;
     localStorage.setItem('panda_name', val);
@@ -149,7 +148,6 @@ function showHome() {
     document.getElementById('lobby-screen').classList.add('hidden');
     document.getElementById('waiting-screen').classList.add('hidden');
     
-    // Set default name if missing but don't prompt
     if (!myName) {
         myName = "Panda";
         localStorage.setItem('panda_name', myName);
@@ -235,7 +233,7 @@ async function finalizeHostGame(mode) {
         roundNum: 0,
         targetCount: 4,
         playerOrder: [myName],
-        showGrandTotal: true // Default to Competative
+        showGrandTotal: true 
     });
 
     await set(ref(db, `games/${newCode}/players/${myName}`), { 
@@ -280,7 +278,6 @@ async function joinExistingGame() {
             clearUsed: false
         });
         
-        // Add to Order List
         const gameData = gSnap.val();
         let currentOrder = gameData.playerOrder || [];
         if (!currentOrder.includes(myName)) {
@@ -312,12 +309,10 @@ function toggleScoreVisibility() {
     get(ref(db, `games/${multiplayerConfig.code}/showGrandTotal`)).then((snap) => {
         const current = snap.val();
         update(ref(db, `games/${multiplayerConfig.code}`), { showGrandTotal: !current });
-        // Refresh UI
         setTimeout(() => openHostSettings(false), 200);
     });
 }
 
-// --- Tie Breaking Logic ---
 function getPlayerIndex(name, orderList) { return orderList.indexOf(name); }
 function getDistanceLeft(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (playerIndex - pandaIndex + totalPlayers) % totalPlayers; }
 function getDistanceRight(pandaIndex, playerIndex, totalPlayers) { if (totalPlayers === 0) return 0; return (pandaIndex - playerIndex + totalPlayers) % totalPlayers; }
@@ -400,8 +395,14 @@ function syncLobby(snap) {
         if (multiplayerConfig.hasSubmitted) {
             waitingEl.classList.remove('hidden');
             app.classList.add('hidden');
-
+            
+            // --- FIX FOR SCROLLING ---
+            // Ensure the list parent has the right classes to scroll
             const listContainer = document.getElementById('waiting-list');
+            if (listContainer && listContainer.parentElement) {
+                listContainer.parentElement.classList.add('flex-1', 'overflow-y-auto', 'min-h-0');
+            }
+
             const orderList = multiplayerConfig.playerOrder;
             
             const calcPlayers = players.map(p => ({
@@ -429,13 +430,17 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // 3. Pity Dice
+            // 3. Pity Dice - FIX: Panda goes last in tie
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
-                const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
-                const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
-                if (distA === 0) distA = -1;
-                if (distB === 0) distB = -1;
+                
+                let distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
+                let distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
+                
+                // If a player is the Panda (dist 0), force distance to max to sort last in tie
+                if (distA === 0) distA = 9999;
+                if (distB === 0) distB = 9999;
+                
                 return distA - distB;
             });
             const pityList = pityOrder.slice(0, pityDiceCount);
@@ -455,8 +460,6 @@ function syncLobby(snap) {
             
             let html = '';
 
-            // --- NEW: INDIVIDUAL SUMMARY ---
-            // Calculate my own stats for this round (even if local data is stale, we can pull from what we just submitted or calculate)
             const myRoundData = activeGame.rounds[activeGame.currentRound];
             const myYel = (myRoundData.yellow || []).reduce((a,b)=>a+b,0);
             const myRnd = calculateRoundTotal(myRoundData);
@@ -525,8 +528,8 @@ function syncLobby(snap) {
             });
             html += `</div></div>`;
 
-            // SECTION 5: GRAND TOTAL (CONDITIONAL)
-            if (data.showGrandTotal !== false) { // Default true
+            // SECTION 5: GRAND TOTAL
+            if (data.showGrandTotal !== false) { 
                 html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
                 html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
                 grandOrder.forEach((p, i) => {
@@ -546,7 +549,7 @@ function syncLobby(snap) {
             // SECTION 6: WAITING FOR
             const waitingFor = players.filter(p => !p.submitted);
             if(waitingFor.length > 0) {
-                 html += `<div class="mt-8 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
+                 html += `<div class="mt-8 pb-10 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
             }
 
             listContainer.innerHTML = html;
@@ -581,13 +584,12 @@ function openHostSettings(isSetupMode = false) {
     overlay.id = 'host-settings-overlay';
     overlay.className = 'modal-overlay animate-fadeIn';
     
-    // Fetch fresh state to ensure toggles are accurate
     get(ref(db, `games/${multiplayerConfig.code}`)).then((snap) => {
         const data = snap.val();
         const order = data.playerOrder || [];
         const pCount = order.length;
         const gameCode = multiplayerConfig.code; 
-        const showGT = data.showGrandTotal !== false; // Default true
+        const showGT = data.showGrandTotal !== false; 
 
         overlay.innerHTML = `
         <div class="action-popup w-[90%] max-w-[350px]">
@@ -723,20 +725,15 @@ function openGameActions(index) {
 function resumeGame(i) {
     activeGame = games[i];
     
-    // ** CRITICAL FIX: Check if this is a MultiPlayer Game **
     if (activeGame.mpCode) {
         multiplayerConfig.active = true;
         multiplayerConfig.code = activeGame.mpCode;
         multiplayerConfig.isHost = activeGame.isHost || false;
         
-        // Re-attach Firebase Listener
         onValue(ref(db, `games/${activeGame.mpCode}`), syncLobby);
         
         const m = document.getElementById('action-modal');
         if (m) m.remove();
-        
-        // syncLobby will handle the render, but we force render if active
-        // Logic handled in syncLobby now
     } else {
         multiplayerConfig.active = false; 
         const m = document.getElementById('action-modal');
@@ -841,7 +838,7 @@ function renderGame() {
         
         // Left: Host Gear or Exit
         if (multiplayerConfig.isHost) {
-            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">HOST<span class="text-base">⚙️</span></button>`;
+            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
