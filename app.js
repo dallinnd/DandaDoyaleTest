@@ -56,7 +56,7 @@ Object.assign(window, {
     openHostModeSelect, finalizeHostGame, joinExistingGame, leaveLobby,
     editMyScore, hostPushNextRound, adjustLobbyCount, openHostSettings,
     movePlayerOrder, savePlayerOrder, closeHostSettings, exitHostGame,
-    submitMultiplayerRound // New function
+    submitMultiplayerRound
 });
 
 function applySettings() {
@@ -353,6 +353,7 @@ function syncLobby(snap) {
             activeGame.currentRound = data.roundNum;
             multiplayerConfig.hasSubmitted = false;
             saveGame();
+            renderGame(); // Only re-render if the round actually changes
         }
 
         if (multiplayerConfig.hasSubmitted) {
@@ -370,6 +371,7 @@ function syncLobby(snap) {
                 orderIndex: getPlayerIndex(p.name, orderList)
             }));
 
+            // 1. Find Panda (Highest Yellow, tie-break seat index)
             const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 return a.orderIndex - b.orderIndex; 
@@ -378,6 +380,7 @@ function syncLobby(snap) {
             const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
             const totalP = orderList.length;
 
+            // 2. Picking Order (Yellow Desc, tie-break Distance Left from Panda)
             const pickingOrder = [...calcPlayers].sort((a,b) => {
                 if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
                 const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
@@ -385,15 +388,24 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
+            // 3. Pity Dice (Round Score Asc, tie-break Distance Right from Panda)
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
                 const distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
                 const distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
                 return distA - distB;
             });
-
             const pityList = pityOrder.slice(0, pityDiceCount);
-            const tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
+
+            // 4. Trade List (Clear used, sorted by Distance Left from Panda)
+            let tradeList = calcPlayers.filter(p => p.clearUsed && p.submitted);
+            tradeList.sort((a, b) => {
+                const distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
+                const distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+                return distA - distB;
+            });
+
+            // 5. Grand Order
             const grandOrder = [...calcPlayers].sort((a,b) => b.grandTotal - a.grandTotal);
             
             let html = '';
@@ -485,13 +497,12 @@ function syncLobby(snap) {
         } else {
             waitingEl.classList.add('hidden');
             app.classList.remove('hidden');
-            renderGame(); 
+            // NO renderGame() here! It prevents scroll jumping/refreshing for active users.
         }
     }
 }
 
 // --- HOST SETTINGS UI ---
-
 function openHostSettings(isSetupMode = false) {
     if(!multiplayerConfig.isHost) return;
 
@@ -504,10 +515,17 @@ function openHostSettings(isSetupMode = false) {
     
     const order = multiplayerConfig.playerOrder;
     const pCount = order.length;
+    const gameCode = multiplayerConfig.code; // Get the code
     
     overlay.innerHTML = `
     <div class="action-popup w-[90%] max-w-[350px]">
         <h2 class="text-2xl font-black mb-2">${isSetupMode ? 'SEATING CHART' : 'HOST SETTINGS'}</h2>
+        
+        <div class="mb-6 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
+            <div class="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">JOIN CODE</div>
+            <div class="text-4xl font-black text-white tracking-widest select-all">${gameCode}</div>
+        </div>
+
         ${isSetupMode ? '<p class="text-xs text-slate-400 mb-6">Arrange players starting from your Left (Clockwise)</p>' : ''}
         
         <div class="mb-6">
@@ -544,6 +562,8 @@ function openHostSettings(isSetupMode = false) {
     
     document.body.appendChild(overlay);
 }
+
+ 
 
 function movePlayerOrder(index, direction) {
     const list = [...multiplayerConfig.playerOrder];
@@ -733,20 +753,14 @@ function renderGame() {
         // --- LOCAL NAV (Original Arrows) ---
         const leftChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>`;
         const rightChevron = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path></svg>`;
-        
-        leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
-        
-        // Center Left Arrow
-        const prevArrow = `<button onclick="changeRound(-1)" class="nav-btn ${roundNum === 1 ? 'disabled' : ''}">${leftChevron}</button>`;
-        
-        // Center Right Arrow
-        const nextArrow = isLastRound 
+        const nextBtn = isLastRound 
             ? `<button onclick="showResults()" class="px-4 py-2 bg-green-600 text-white text-[10px] font-black uppercase rounded-lg shadow-lg">Results</button>`
             : `<button onclick="changeRound(1)" class="nav-btn">${rightChevron}</button>`;
-            
-        // Combine for center display (logic handled in HTML template below)
+        
+        // Left Action is Exit for local
         leftAction = `<button onclick="showHome()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">Exit</button>`;
-        // Note: In local mode we render arrows inside the center div block in the main template
+        
+        // For Local, we override the whole top bar content below to include the centered arrows
     }
 
     let reviewSectionHtml = '';
@@ -905,7 +919,11 @@ async function submitMultiplayerRound() {
     const rTotal = calculateRoundTotal(currentRData);
     const gTotal = calculateGrandTotal(activeGame);
     const yTotal = (currentRData.yellow || []).reduce((a, b) => a + b, 0);
-    const clrUsed = (currentRData.clear || []).length > 0;
+    
+    // Check Natural Clear AND Wild Clear
+    const hasNaturalClear = (currentRData.clear || []).length > 0;
+    const hasWildClear = (currentRData.wild || []).some(w => w.target === 'clear');
+    const clrUsed = hasNaturalClear || hasWildClear;
     
     // Set Local State to Waiting
     multiplayerConfig.hasSubmitted = true;
