@@ -484,7 +484,7 @@ function syncLobby(snap) {
             </div>`;
 
             // SECTION 1: THE PANDA
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
+            html += `<div class="mb-4"><div class="text-sm font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
             if (pandaPlayer && pandaPlayer.submitted) {
                 html += `<div class="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex justify-between items-center">
                     <span class="text-xl font-black text-yellow-400">${pandaPlayer.name}</span>
@@ -494,7 +494,7 @@ function syncLobby(snap) {
             html += `</div>`;
 
             // SECTION 2: PITY DICE
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-pink-500 tracking-widest mb-1 pl-2">PITY DICE (${pityDiceCount})</div>`;
+            html += `<div class="mb-4"><div class="text-sm font-black uppercase text-pink-500 tracking-widest mb-1 pl-2">PITY DICE (${pityDiceCount})</div>`;
             if (pityList.length > 0) {
                  html += `<div class="grid grid-cols-1 gap-2">`;
                  pityList.forEach(p => {
@@ -509,24 +509,24 @@ function syncLobby(snap) {
             html += `</div>`;
 
             // SECTION 3: TRADES
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1 pl-2">TRADES</div>`;
+            html += `<div class="mb-4"><div class="text-sm font-black uppercase text-slate-400 tracking-widest mb-1 pl-2">TRADES</div>`;
             if (tradeList.length > 0) {
                  html += `<div class="flex flex-wrap gap-2">`;
                  tradeList.forEach(p => {
                     html += `<span class="bg-slate-700/50 border border-slate-600 px-3 py-1 rounded-lg text-xs font-bold text-slate-300">${p.name}</span>`;
                  });
                  html += `</div>`;
-            } else { html += `<div class="opacity-30 italic pl-2 text-xs text-slate-600">No trades.</div>`; }
+            } else { html += `<div class="opacity-30 italic pl-2 text-sm text-slate-600">No trades.</div>`; }
             html += `</div>`;
 
             // SECTION 4: PICKING ORDER
-            html += `<div class="mb-4"><div class="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-1 pl-2">PICKING ORDER</div>`;
+            html += `<div class="mb-4"><div class="text-sm font-black uppercase text-blue-400 tracking-widest mb-1 pl-2">PICKING ORDER</div>`;
             html += `<div class="bg-white/5 rounded-xl border border-white/10 divide-y divide-white/5">`;
             pickingOrder.forEach((p, i) => {
                 const val = p.submitted ? p.yellowScore : '-';
                 html += `<div class="p-3 flex justify-between items-center">
                     <div class="flex items-center gap-3">
-                        <span class="text-[10px] font-black w-4 text-slate-500">${i+1}</span>
+                        <span class="text-sm font-black w-4 text-slate-500">${i+1}</span>
                         <span class="font-bold text-sm ${p.name===myName?'text-blue-400':'text-slate-300'}">${p.name}</span>
                     </div>
                     <div class="bg-[#fbbf24] text-black px-2 py-0.5 rounded-lg text-xs font-black">${val}</div>
@@ -536,7 +536,7 @@ function syncLobby(snap) {
 
             // SECTION 5: GRAND TOTAL
             if (data.showGrandTotal !== false) { 
-                html += `<div class="mb-8"><div class="text-[10px] font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
+                html += `<div class="mb-8"><div class="text-sm font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div>`;
                 html += `<div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
                 grandOrder.forEach((p, i) => {
                     html += `<div class="p-3 flex justify-between items-center">
@@ -549,7 +549,7 @@ function syncLobby(snap) {
                 });
                 html += `</div></div>`;
             } else {
-                html += `<div class="mb-8 text-center text-xs text-slate-500 font-bold italic opacity-50">Family Mode Active (Leaderboard Hidden)</div>`;
+                html += `<div class="mb-8 text-center text-sm text-slate-500 font-bold italic opacity-50">Family Mode Active (Leaderboard Hidden)</div>`;
             }
 
             // SECTION 6: WAITING FOR
@@ -845,7 +845,7 @@ function renderGame() {
 
     if (multiplayerConfig.active) {
         if (multiplayerConfig.isHost) {
-            leftAction = `<button onclick="openHostSettings()" class="text-[10px] font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
+            leftAction = `<button onclick="openHostSettings()" class="text-md font-black uppercase px-3 py-2 rounded-lg bg-black/5 text-slate-500 flex items-center gap-1">⚙️ HOST</button>`;
         } else {
             leftAction = `<button onclick="leaveLobby()" class="text-[10px] font-black uppercase opacity-50 px-3 py-2 rounded-lg bg-black/5">EXIT</button>`;
         }
