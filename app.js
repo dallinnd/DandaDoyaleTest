@@ -516,7 +516,7 @@ function syncLobby(snap) {
                     html += `<span class="bg-slate-700/50 border border-slate-600 px-3 py-1 rounded-lg text-xs font-bold text-slate-300">${p.name}</span>`;
                  });
                  html += `</div>`;
-            } else { html += `<div class="opacity-30 italic pl-2 text-sm text-slate-600">No trades.</div>`; }
+            } else { html += `<div class="opacity-60 italic pl-2 text-sm text-slate-600">No trades.</div>`; }
             html += `</div>`;
 
             // SECTION 4: PICKING ORDER
