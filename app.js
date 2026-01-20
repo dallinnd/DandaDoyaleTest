@@ -186,17 +186,15 @@ function showHome() {
             <div class="opacity-30 pr-3">✎</div>
         </div>
 
-<!-- Added header for Online Game section -->
-<div class="text-xs font-black uppercase tracking-wider opacity-60 mb-2 px-1">Online Game</div>
+        <div class="text-xs font-black uppercase tracking-wider opacity-60 mb-2 px-1">Online Game</div>
 
-<div class="flex gap-3 mb-6">
-  <button onclick="openHostModeSelect()" class="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg">Host</button>
-  <button onclick="joinExistingGame()" class="flex-1 py-4 bg-slate-800 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg">Join</button>
-</div>
-<div class="flex-1 overflow-y-auto mb-4 border-t border-[var(--border-ui)] pt-4">${games.length > 0 ? gameCards : '<p class="opacity-30 italic text-center py-20">No games found.</p>'}</div>
-<button onclick="openNewGameModal()" class="w-full bg-green-600 py-5 rounded-3xl font-black text-xl text-white shadow-xl active:scale-95 transition-all">LOCAL GAME</button>
-
-    </div>`;
+        <div class="flex gap-3 mb-6">
+            <button onclick="openHostModeSelect()" class="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg">Host</button>
+            <button onclick="joinExistingGame()" class="flex-1 py-4 bg-slate-800 text-white rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg">Join</button>
+        </div>
+        <button onclick="openNewGameModal()" class="w-full bg-green-600 py-5 rounded-3xl font-black text-xl text-white shadow-xl active:scale-95 transition-all">LOCAL GAME</button>
+        <div class="flex-1 overflow-y-auto mb-4 border-t border-[var(--border-ui)] pt-4">${games.length > 0 ? gameCards : '<p class="opacity-30 italic text-center py-20">No games found.</p>'}</div>
+        </div>`;
 }
 
 // --- Multiplayer Logic ---
