@@ -40,7 +40,8 @@ let multiplayerConfig = {
     code: null,
     isHost: false,
     hasSubmitted: false,
-    playerOrder: [] 
+    playerOrder: [],
+    podiumShown: false
 };
 
 const app = document.getElementById('app');
@@ -402,7 +403,6 @@ function syncLobby(snap) {
 
         if (multiplayerConfig.hasSubmitted) {
             waitingEl.classList.remove('hidden');
-            // FIX: Ensure the waiting screen scrolls if content overflows
             waitingEl.classList.add('overflow-y-auto', 'pb-10'); 
             app.classList.add('hidden');
 
@@ -434,16 +434,13 @@ function syncLobby(snap) {
                 return distA - distB;
             });
 
-            // 3. Pity Dice - Updated for "Closest to Right"
+            // 3. Pity Dice
             const pityOrder = [...calcPlayers].sort((a,b) => {
                 if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
                 
-                // Use getDistanceRight to find closest person counter-clockwise
                 let distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
                 let distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
                 
-                // If distance is 0, it means it is the Panda.
-                // We want Panda to be LAST (highest distance value)
                 if (distA === 0) distA = totalP + 999;
                 if (distB === 0) distB = totalP + 999;
                 
@@ -554,8 +551,42 @@ function syncLobby(snap) {
 
             // SECTION 6: WAITING FOR
             const waitingFor = players.filter(p => !p.submitted);
-            if(waitingFor.length > 0) {
-                 html += `<div class="mt-8 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
+            
+            // --- ROUND 10 FINAL SUMMARY INTERCEPT ---
+            if (activeGame.currentRound === 9 && waitingFor.length === 0) {
+                // Build Final Leaderboard
+                html = `<div class="mb-8 mt-4"><div class="text-3xl font-black uppercase text-yellow-500 tracking-widest mb-6 text-center drop-shadow-md">FINAL STANDINGS</div>`;
+                html += `<div class="bg-gradient-to-b from-white/10 to-transparent rounded-3xl border border-white/10 divide-y divide-white/5 shadow-2xl">`;
+                
+                grandOrder.forEach((p, i) => {
+                    let medal = '';
+                    if(i === 0) medal = '🥇';
+                    if(i === 1) medal = '🥈';
+                    if(i === 2) medal = '🥉';
+                    
+                    html += `<div class="p-5 flex justify-between items-center ${p.name === myName ? 'bg-white/5' : ''}">
+                        <div class="flex items-center gap-4">
+                            <span class="text-2xl font-black w-8 text-center ${i===0?'text-yellow-400':i===1?'text-slate-300':i===2?'text-amber-600':'text-slate-600 drop-shadow-md'}">${medal || (i+1)}</span>
+                            <span class="font-black text-xl ${p.name===myName?'text-white':'text-slate-300'}">${p.name}</span>
+                        </div>
+                        <span class="font-black text-3xl ${i===0?'text-yellow-400':'text-white'}">${p.grandTotal||0}</span>
+                    </div>`;
+                });
+                html += `</div></div>`;
+                
+                // Trigger Podium Popup for Top 3
+                if (!multiplayerConfig.podiumShown) {
+                    multiplayerConfig.podiumShown = true;
+                    const myRank = grandOrder.findIndex(p => p.name === myName);
+                    if (myRank >= 0 && myRank <= 2) {
+                        setTimeout(() => showPodiumPopup(myRank, grandOrder[myRank].grandTotal), 600); 
+                    }
+                }
+            } else {
+                // Standard WAITING FOR list
+                if(waitingFor.length > 0) {
+                     html += `<div class="mt-8 text-center animate-pulse"><div class="text-[10px] font-black uppercase text-red-500 tracking-widest mb-2">WAITING FOR</div><div class="text-slate-400 text-xs font-bold">${waitingFor.map(p => p.name).join(', ')}</div></div>`;
+                }
             }
 
             listContainer.innerHTML = html;
@@ -566,9 +597,28 @@ function syncLobby(snap) {
             if (multiplayerConfig.isHost) {
                 hostBtn.classList.remove('hidden');
                 msg.classList.add('hidden');
+                
+                // Change Host Button behavior if game is over
+                if (activeGame.currentRound === 9 && waitingFor.length === 0) {
+                    hostBtn.innerText = "END GAME";
+                    hostBtn.classList.replace('bg-yellow-500', 'bg-red-600');
+                    hostBtn.classList.replace('text-black', 'text-white');
+                    hostBtn.onclick = () => exitHostGame(); 
+                } else {
+                    hostBtn.innerText = "START NEXT ROUND";
+                    hostBtn.classList.add('bg-yellow-500', 'text-black');
+                    hostBtn.classList.remove('bg-red-600', 'text-white');
+                    hostBtn.onclick = () => hostPushNextRound();
+                }
             } else {
                 hostBtn.classList.add('hidden');
                 msg.classList.remove('hidden');
+                
+                if (activeGame.currentRound === 9 && waitingFor.length === 0) {
+                     msg.innerText = "WAITING FOR HOST TO END GAME...";
+                } else {
+                     msg.innerText = "Waiting for other players...";
+                }
             }
 
         } else {
@@ -588,7 +638,7 @@ function openHostSettings(isSetupMode = false) {
         overlay = document.createElement('div');
         overlay.id = 'host-settings-overlay';
         overlay.className = 'modal-overlay animate-fadeIn';
-        overlay.innerHTML = `<div id="host-settings-content" class="action-popup w-[90%] max-w-[350px]"></div>`;
+        overlay.innerHTML = `<div id="host-settings-content" class="action-popup w-[90%] max-w-[350px] max-h-[85vh] overflow-y-auto"></div>`;
         document.body.appendChild(overlay);
     }
     renderHostSettingsContent(isSetupMode);
@@ -1183,6 +1233,38 @@ function showSagePopup() {
     overlay.innerHTML = `<div class="w-[85%] max-w-[320px] bg-white border-4 border-yellow-500 rounded-[40px] p-8 text-center shadow-2xl"><div class="flex flex-col items-center gap-6"><div class="w-24 h-24 bg-gradient-to-tr from-amber-400 to-yellow-600 rounded-full flex items-center justify-center text-white shadow-xl ring-4 ring-yellow-200"><svg class="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"></path></svg></div><div><h2 class="text-3xl font-black text-yellow-600 tracking-tighter mb-1">SAGE QUEST</h2><h3 class="text-xl font-black uppercase text-slate-400">COMPLETE</h3></div><p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Tap anywhere to continue</p></div></div>`;
     document.body.appendChild(overlay);
 }
+
+window.showPodiumPopup = function(rank, score) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay animate-fadeIn z-[5000]';
+    overlay.onclick = () => overlay.remove();
+    
+    const config = [
+        { title: 'CHAMPION', color: 'from-yellow-400 to-yellow-600', text: 'text-yellow-400', medal: '🥇' },
+        { title: '2ND PLACE', color: 'from-slate-300 to-slate-500', text: 'text-slate-300', medal: '🥈' },
+        { title: '3RD PLACE', color: 'from-amber-600 to-orange-800', text: 'text-amber-500', medal: '🥉' }
+    ][rank];
+
+    overlay.innerHTML = `
+        <div class="action-popup border border-[var(--border-ui)] shadow-2xl relative overflow-hidden" onclick="event.stopPropagation()">
+            <div class="absolute inset-0 bg-gradient-to-br ${config.color} opacity-10"></div>
+            <div class="relative z-10 flex flex-col items-center gap-4">
+                <div class="text-[5rem] mb-2 animate-bounce" style="filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));">${config.medal}</div>
+                <div>
+                    <h2 class="text-3xl font-black ${config.text} tracking-tighter mb-1">${config.title}</h2>
+                    <h3 class="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Congratulations!</h3>
+                </div>
+                <div class="mt-4 bg-black/40 px-8 py-4 rounded-3xl border border-white/10 backdrop-blur-md">
+                    <span class="text-[10px] font-black uppercase text-slate-400 block mb-1 tracking-widest">Final Score</span>
+                    <span class="text-5xl font-black text-white">${score}</span>
+                </div>
+                <button onclick="this.closest('.modal-overlay').remove()" class="mt-6 bg-white/10 hover:bg-white/20 transition-colors px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-[0.2em] text-white w-full border border-white/10">
+                    View Leaderboard
+                </button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+};
 
 applySettings();
 showSplash();
