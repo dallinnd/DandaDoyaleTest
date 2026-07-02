@@ -601,23 +601,30 @@ function syncLobby(snap) {
                 // Change Host Button behavior if game is over
                 if (activeGame.currentRound === 9 && waitingFor.length === 0) {
                     hostBtn.innerText = "END GAME";
-                    hostBtn.classList.replace('bg-yellow-500', 'bg-red-600');
-                    hostBtn.classList.replace('text-black', 'text-white');
+                    hostBtn.classList.remove('bg-yellow-500', 'text-black', 'bg-slate-700');
+                    hostBtn.classList.add('bg-red-600', 'text-white');
                     hostBtn.onclick = () => exitHostGame(); 
                 } else {
                     hostBtn.innerText = "START NEXT ROUND";
+                    hostBtn.classList.remove('bg-red-600', 'bg-slate-700', 'text-white');
                     hostBtn.classList.add('bg-yellow-500', 'text-black');
-                    hostBtn.classList.remove('bg-red-600', 'text-white');
                     hostBtn.onclick = () => hostPushNextRound();
                 }
             } else {
-                hostBtn.classList.add('hidden');
-                msg.classList.remove('hidden');
-                
                 if (activeGame.currentRound === 9 && waitingFor.length === 0) {
-                     msg.innerText = "WAITING FOR HOST TO END GAME...";
+                    // Non-Host: Game over, show exit button instead of waiting text
+                    hostBtn.classList.remove('hidden');
+                    msg.classList.add('hidden');
+                    
+                    hostBtn.innerText = "RETURN TO HISTORY";
+                    hostBtn.classList.remove('bg-yellow-500', 'text-black', 'bg-red-600');
+                    hostBtn.classList.add('bg-slate-700', 'text-white');
+                    hostBtn.onclick = () => window.location.reload(); 
                 } else {
-                     msg.innerText = "Waiting for other players...";
+                    // Non-Host: Still waiting for round to end/continue
+                    hostBtn.classList.add('hidden');
+                    msg.classList.remove('hidden');
+                    msg.innerText = "Waiting for other players...";
                 }
             }
 
