@@ -408,7 +408,7 @@ function syncLobby(snap) {
             app.classList.add('hidden');
 
             const summaryHeader = document.querySelector('#waiting-screen h2');
-            if (summaryHeader) summaryHeader.innerText = `ROUND ${data.roundNum + 1} SUMMARY`;
+            if (summaryHeader) summaryHeader.innerText = `ROUND ${data.roundNum + 1} - SUMMARY`;
             const listContainer = document.getElementById('waiting-list');
             const orderList = multiplayerConfig.playerOrder;
             
