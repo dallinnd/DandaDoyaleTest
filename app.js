@@ -407,6 +407,8 @@ function syncLobby(snap) {
             waitingEl.classList.add('overflow-y-auto', 'pb-10'); 
             app.classList.add('hidden');
 
+            const summaryHeader = document.querySelector('#waiting-screen h2');
+            if (summaryHeader) summaryHeader.innerText = `ROUND ${data.roundNum + 1} SUMMARY`;
             const listContainer = document.getElementById('waiting-list');
             const orderList = multiplayerConfig.playerOrder;
             
@@ -713,6 +715,7 @@ function renderHostSettingsContent(isSetupMode) {
         </div>
         
         <div class="flex flex-col gap-3">
+            ${!isSetupMode && data.roundNum > 0 ? `<button onclick="openHistoryListModal()" class="w-full bg-slate-800 py-3 rounded-xl font-black text-white uppercase text-xs border border-slate-600 shadow-lg">View Previous Rounds</button>` : ''}
             <button onclick="closeHostSettings()" class="w-full bg-green-600 py-3 rounded-xl font-black text-white uppercase text-sm shadow-lg">Save & Close</button>
             ${!isSetupMode ? '<button onclick="exitHostGame()" class="w-full bg-red-900/50 text-red-400 py-3 rounded-xl font-black uppercase text-xs border border-red-500/30">Exit to Main Menu</button>' : ''}
         </div>`;
@@ -749,11 +752,16 @@ function exitHostGame() {
 
 async function hostPushNextRound() {
     const snap = await get(ref(db, `games/${multiplayerConfig.code}`));
-    const currentR = snap.val().roundNum;
+    const data = snap.val();
+    const currentR = data.roundNum;
     
     const updates = {};
+    
+    // --- NEW: SAVE ROUND TO HISTORY ---
+    updates[`games/${multiplayerConfig.code}/history/${currentR}`] = data.players;
+    
     updates[`games/${multiplayerConfig.code}/roundNum`] = currentR + 1;
-    for (let p in snap.val().players) {
+    for (let p in data.players) {
         updates[`games/${multiplayerConfig.code}/players/${p}/submitted`] = false;
     }
     await update(ref(db), updates);
@@ -898,6 +906,13 @@ function renderGame() {
     const sageGlobalStatus = isExpansion ? isSageAlreadyCompleteBy(activeGame.currentRound) : false;
     const sageUnlocked = isExpansion && activeGame.currentRound > 0 && isSageAlreadyCompleteBy(activeGame.currentRound - 1);
     const isLastRound = roundNum === 10;
+     
+    // --- NEW: SAGE CONGRATULATIONS POPUP LOGIC ---
+    if (sageUnlocked && !activeGame.sagePopupShown) {
+        activeGame.sagePopupShown = true;
+        saveGame();
+        setTimeout(showSagePopup, 500);
+    }
      
     let leftAction, rightAction;
 
@@ -1087,11 +1102,6 @@ async function changeRound(s) {
         const n = activeGame.currentRound + s; 
         if (n < 0 || n >= 10) return;
         setActiveInput('yellow'); 
-        if (activeGame.mode === 'expansion' && s === 1) {
-            const sageNow = calculateSageProgress(activeGame.rounds[activeGame.currentRound]).count >= 6;
-            const completedPreviously = activeGame.rounds.slice(0, activeGame.currentRound).some(r => calculateSageProgress(r).count >= 6);
-            if (sageNow && !completedPreviously) showSagePopup();
-        }
         activeGame.currentRound = n; saveGame(); renderGame(); 
     }
 }
@@ -1234,6 +1244,7 @@ function clearHistory() {
         games = []; saveGame(); showHome();
     }
 }
+
 function showSagePopup() {
     const overlay = document.createElement('div');
     overlay.className = 'fixed inset-0 bg-black/40 backdrop-blur-2xl z-[2000] flex items-center justify-center animate-fadeIn cursor-pointer';
@@ -1273,6 +1284,135 @@ window.showPodiumPopup = function(rank, score) {
         </div>`;
     document.body.appendChild(overlay);
 };
+
+// --- HOST HISTORY LOGIC ---
+
+window.openHistoryListModal = async function() {
+    const snap = await get(ref(db, `games/${multiplayerConfig.code}`));
+    const data = snap.val();
+    if (!data || !data.history) return alert("No history available yet.");
+
+    const overlay = document.createElement('div');
+    overlay.id = 'history-list-overlay';
+    overlay.className = 'modal-overlay animate-fadeIn z-[6000]';
+    overlay.onclick = (e) => { if(e.target === overlay) overlay.remove(); };
+    
+    let buttons = Object.keys(data.history).map(roundIdx => `
+        <button onclick="viewPastRound(${roundIdx})" class="w-full bg-white/5 text-white py-4 rounded-xl font-black text-sm mb-3 hover:bg-white/10 transition-colors border border-white/10 uppercase tracking-widest">
+            Round ${parseInt(roundIdx) + 1}
+        </button>
+    `).join('');
+
+    overlay.innerHTML = `<div class="action-popup w-[90%] max-w-[350px]" onclick="event.stopPropagation()">
+        <h2 class="text-xl font-black mb-6 uppercase tracking-widest text-white">Previous Rounds</h2>
+        <div class="max-h-[50vh] overflow-y-auto mb-4">${buttons}</div>
+        <button onclick="this.closest('.modal-overlay').remove()" class="w-full bg-slate-700 py-3 rounded-xl font-black text-white uppercase text-xs">Close</button>
+    </div>`;
+    document.body.appendChild(overlay);
+};
+
+window.viewPastRound = async function(roundIdx) {
+    const snap = await get(ref(db, `games/${multiplayerConfig.code}`));
+    const data = snap.val();
+    if (!data || !data.history || !data.history[roundIdx]) return;
+
+    const playersData = data.history[roundIdx];
+    const orderList = data.playerOrder || [];
+    const targetCount = data.targetCount || 4;
+    const showGT = data.showGrandTotal !== false;
+
+    const html = generateRoundSummaryHTML(playersData, orderList, targetCount, showGT);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay animate-fadeIn z-[7000]';
+    overlay.onclick = (e) => { if(e.target === overlay) overlay.remove(); };
+    
+    overlay.innerHTML = `<div class="action-popup w-[95%] max-w-[400px] h-[85vh] flex flex-col bg-[#0f172a] border border-slate-700 p-6" onclick="event.stopPropagation()">
+        <h2 class="text-2xl font-black mb-6 uppercase tracking-tighter text-white text-center">ROUND ${parseInt(roundIdx) + 1} SUMMARY</h2>
+        <div class="flex-1 overflow-y-auto text-left space-y-2 pr-2 pb-4">${html}</div>
+        <button onclick="this.closest('.modal-overlay').remove()" class="w-full mt-4 bg-slate-800 py-4 rounded-xl font-black text-white uppercase text-sm shadow-md shrink-0">Close Summary</button>
+    </div>`;
+    document.body.appendChild(overlay);
+};
+
+function generateRoundSummaryHTML(playersData, orderList, targetCount, showGT) {
+    const players = Object.values(playersData);
+    const totalP = orderList.length;
+    const pityDiceCount = getPityDiceCount(targetCount);
+    
+    const calcPlayers = players.map(p => ({ ...p, orderIndex: getPlayerIndex(p.name, orderList) }));
+
+    const sortedByYellowRaw = [...calcPlayers].sort((a,b) => {
+        if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
+        return a.orderIndex - b.orderIndex; 
+    });
+    const pandaPlayer = sortedByYellowRaw[0];
+    const pandaIndex = pandaPlayer ? pandaPlayer.orderIndex : 0;
+
+    const pickingOrder = [...calcPlayers].sort((a,b) => {
+        if (b.yellowScore !== a.yellowScore) return b.yellowScore - a.yellowScore;
+        return getDistanceLeft(pandaIndex, a.orderIndex, totalP) - getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+    });
+
+    const pityOrder = [...calcPlayers].sort((a,b) => {
+        if (a.roundScore !== b.roundScore) return a.roundScore - b.roundScore;
+        let distA = getDistanceRight(pandaIndex, a.orderIndex, totalP);
+        let distB = getDistanceRight(pandaIndex, b.orderIndex, totalP);
+        if (distA === 0) distA = totalP + 999;
+        if (distB === 0) distB = totalP + 999;
+        return distA - distB;
+    });
+    const pityList = pityOrder.slice(0, pityDiceCount);
+
+    let tradeList = calcPlayers.filter(p => p.clearUsed);
+    tradeList.sort((a, b) => {
+        let distA = getDistanceLeft(pandaIndex, a.orderIndex, totalP);
+        let distB = getDistanceLeft(pandaIndex, b.orderIndex, totalP);
+        if (distA === 0) distA = 9999;
+        if (distB === 0) distB = 9999;
+        return distA - distB;
+    });
+
+    const grandOrder = [...calcPlayers].sort((a,b) => b.grandTotal - a.grandTotal);
+    
+    let html = '';
+
+    html += `<div class="mb-4"><div class="text-sm font-black uppercase text-yellow-500 tracking-widest mb-1 pl-2">THE PANDA</div>`;
+    if (pandaPlayer) {
+        html += `<div class="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex justify-between items-center"><span class="text-xl font-black text-yellow-400">${pandaPlayer.name}</span><span class="text-2xl font-black text-white">${pandaPlayer.yellowScore}</span></div>`;
+    }
+    html += `</div>`;
+
+    html += `<div class="mb-4"><div class="text-sm font-black uppercase text-pink-500 tracking-widest mb-1 pl-2">PITY DICE (${pityDiceCount})</div>`;
+    if (pityList.length > 0) {
+         html += `<div class="grid grid-cols-1 gap-2">`;
+         pityList.forEach(p => { html += `<div class="bg-pink-500/10 border border-pink-500/50 p-3 rounded-xl flex justify-between items-center"><span class="font-bold text-pink-400">${p.name}</span><span class="font-mono text-white text-xs">Round: ${p.roundScore}</span></div>`; });
+         html += `</div>`;
+    } else { html += `<div class="opacity-30 italic pl-2 text-xs">None</div>`; }
+    html += `</div>`;
+
+    html += `<div class="mb-4"><div class="text-sm font-black uppercase text-slate-400 tracking-widest mb-1 pl-2">TRADES</div>`;
+    if (tradeList.length > 0) {
+         html += `<div class="flex flex-wrap gap-2">`;
+         tradeList.forEach(p => { html += `<span class="bg-slate-700/50 border border-slate-600 px-3 py-1 rounded-lg text-xs font-bold text-slate-300">${p.name}</span>`; });
+         html += `</div>`;
+    } else { html += `<div class="opacity-60 italic pl-2 text-sm text-slate-600">No trades.</div>`; }
+    html += `</div>`;
+
+    html += `<div class="mb-4"><div class="text-sm font-black uppercase text-blue-400 tracking-widest mb-1 pl-2">PICKING ORDER</div><div class="bg-white/5 rounded-xl border border-white/10 divide-y divide-white/5">`;
+    pickingOrder.forEach((p, i) => { html += `<div class="p-3 flex justify-between items-center"><div class="flex items-center gap-3"><span class="text-sm font-black w-4 text-slate-500">${i+1}</span><span class="font-bold text-sm text-slate-300">${p.name}</span></div><div class="bg-[#fbbf24] text-black px-2 py-0.5 rounded-lg text-xs font-black">${p.yellowScore}</div></div>`; });
+    html += `</div></div>`;
+
+    if (showGT) { 
+        html += `<div class="mb-2"><div class="text-sm font-black uppercase text-green-500 tracking-widest mb-1 pl-2">LEADERBOARD</div><div class="bg-gradient-to-b from-green-900/20 to-transparent rounded-xl border border-green-500/20 divide-y divide-green-500/10">`;
+        grandOrder.forEach((p, i) => { html += `<div class="p-3 flex justify-between items-center"><div class="flex items-center gap-3"><span class="text-[10px] font-black w-4 text-green-700">${i+1}</span><span class="font-bold text-sm text-white">${p.name}</span></div><span class="font-black text-green-500">${p.grandTotal||0}</span></div>`; });
+        html += `</div></div>`;
+    } else {
+        html += `<div class="mb-2 text-center text-sm text-slate-500 font-bold italic opacity-50">Family Mode Active (Leaderboard Hidden)</div>`;
+    }
+
+    return html;
+}
 
 applySettings();
 showSplash();
